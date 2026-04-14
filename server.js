@@ -53,6 +53,8 @@ function startServer(dataDirPath) {
     app.use('/mobile', express.static(path.join(__dirname, 'src', 'mobile')));
     app.use('/mobile/logo.png', express.static(path.join(__dirname, 'public', 'logo.png')));
     app.use('/libs', express.static(path.join(__dirname, 'node_modules', 'pdfjs-dist')));
+    app.use('/src', express.static(path.join(__dirname, 'src')));
+    app.use('/public', express.static(path.join(__dirname, 'public')));
 
     // Serve PDF files
     app.get('/api/pdf/:id', (req, res) => {

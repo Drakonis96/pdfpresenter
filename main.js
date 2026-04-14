@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, nativeImage, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { startServer, stopServer, getServerInfo } = require('./server');
@@ -61,9 +61,9 @@ function createPresentationWindow(pdfId) {
     }
   });
 
-  presentationWindow.loadFile(path.join(__dirname, 'src', 'presentation.html'), {
-    query: { pdfId }
-  });
+  const info = getServerInfo();
+  const port = info ? info.port : 3491;
+  presentationWindow.loadURL(`http://localhost:${port}/src/presentation.html?pdfId=${encodeURIComponent(pdfId)}`);
 
   presentationWindow.on('closed', () => {
     presentationWindow = null;
@@ -96,9 +96,9 @@ function createPresenterWindow(pdfId) {
     }
   });
 
-  presenterWindow.loadFile(path.join(__dirname, 'src', 'presenter.html'), {
-    query: { pdfId }
-  });
+  const info = getServerInfo();
+  const port = info ? info.port : 3491;
+  presenterWindow.loadURL(`http://localhost:${port}/src/presenter.html?pdfId=${encodeURIComponent(pdfId)}`);
 
   presenterWindow.on('closed', () => {
     presenterWindow = null;
@@ -263,16 +263,6 @@ ipcMain.on('presenter-control', (event, action) => {
 
 app.whenReady().then(async () => {
   ensureDataDir();
-
-  // Inject Referer header for YouTube embeds (fixes error 153 from file:// origins)
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['*://*.youtube.com/*', '*://*.googlevideo.com/*'] },
-    (details, callback) => {
-      details.requestHeaders['Referer'] = 'https://www.youtube.com/';
-      details.requestHeaders['Origin'] = 'https://www.youtube.com';
-      callback({ requestHeaders: details.requestHeaders });
-    }
-  );
 
   // Set dock icon on macOS
   if (process.platform === 'darwin' && app.dock) {
