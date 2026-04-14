@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Electron build output
+dist/
+out/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/

@@ -1,0 +1,24 @@
+{
+  "name": "pdfpresenter",
+  "version": "1.0.0",
+  "description": "PDF Presenter with mobile remote control",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "jest --forceExit --detectOpenHandles"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "express": "^4.18.2",
+    "jszip": "^3.10.1",
+    "qrcode": "^1.5.3",
+    "ws": "^8.16.0",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "jest": "^30.3.0",
+    "jest-environment-jsdom": "^30.3.0"
+  }
+}

@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Presentación</title>
+  <link rel="icon" type="image/png" href="../public/logo.png">
+  <link rel="stylesheet" href="styles/presentation.css">
+</head>
+<body>
+  <div class="presentation-container" id="presentation-container">
+    <div class="slide-wrapper" id="slide-wrapper">
+      <canvas id="slide-canvas"></canvas>
+    
+      <!-- YouTube video overlay -->
+      <div class="video-overlay hidden" id="video-overlay">
+        <iframe id="video-iframe" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <div class="video-controls" id="video-controls">
+          <button class="video-play-btn" id="video-play-btn" title="Reproducir/Pausar">
+            <svg id="video-play-icon" width="48" height="48" viewBox="0 0 24 24" fill="white">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            <svg id="video-pause-icon" class="hidden" width="48" height="48" viewBox="0 0 24 24" fill="white">
+              <rect x="6" y="4" width="4" height="16"/>
+              <rect x="14" y="4" width="4" height="16"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tool overlays -->
+      <div class="tool-overlay hidden" id="flashlight-overlay">
+        <div class="flashlight-mask" id="flashlight-mask"></div>
+      </div>
+
+      <canvas class="tool-overlay hidden" id="draw-overlay"></canvas>
+    
+      <div class="tool-overlay hidden" id="pointer-overlay">
+        <div class="pointer-dot" id="pointer-dot"></div>
+      </div>
+
+      <div class="tool-overlay hidden" id="zoom-overlay">
+        <div class="zoom-lens" id="zoom-lens">
+          <canvas id="zoom-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar" id="toolbar">
+    <div class="toolbar-group">
+      <button class="toolbar-btn toolbar-btn-icon" id="tb-clear" title="Limpiar dibujo">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+      </button>
+      <button class="toolbar-btn" id="tb-flashlight" data-tool="flashlight">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 18h6"/>
+          <path d="M10 22h4"/>
+          <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>
+        </svg>
+        <span>Linterna</span>
+        <kbd>⌘L</kbd>
+      </button>
+    </div>
+
+    <div class="toolbar-group">
+      <div class="toolbar-colors">
+        <button class="toolbar-color" data-color="#6366f1" style="background:#6366f1"></button>
+        <button class="toolbar-color active" data-color="#ef4444" style="background:#ef4444"></button>
+        <button class="toolbar-color" data-color="#22c55e" style="background:#22c55e"></button>
+        <button class="toolbar-color" data-color="#ffffff" style="background:#ffffff; border-color: rgba(255,255,255,0.3)"></button>
+      </div>
+      <div class="toolbar-tips">
+        <button class="toolbar-tip" data-tip="small" title="Pequeño"><span class="toolbar-tip-dot" style="width:4px;height:4px"></span></button>
+        <button class="toolbar-tip active" data-tip="medium" title="Mediano"><span class="toolbar-tip-dot" style="width:8px;height:8px"></span></button>
+        <button class="toolbar-tip" data-tip="large" title="Grande"><span class="toolbar-tip-dot" style="width:12px;height:12px"></span></button>
+      </div>
+      <span class="toolbar-label">Tamaño</span>
+      <input type="range" class="toolbar-slider" id="tool-size-slider" min="2" max="50" value="15">
+    </div>
+
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="tb-draw" data-tool="draw">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+          <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+          <path d="M2 2l7.586 7.586"/>
+          <circle cx="11" cy="11" r="2"/>
+        </svg>
+        <span>Dibujo</span>
+        <kbd>⌘D</kbd>
+      </button>
+      <button class="toolbar-btn" id="tb-pointer" data-tool="pointer">
+        <span class="pointer-icon"></span>
+        <span>Puntero</span>
+        <kbd>⌘P</kbd>
+      </button>
+    </div>
+
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="tb-zoom" data-tool="zoom">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span>Lupa</span>
+        <kbd>⌘M</kbd>
+      </button>
+    </div>
+
+    <div class="toolbar-group">
+      <button class="toolbar-btn toolbar-btn-icon" id="tb-qr" title="Mostrar QR">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="2" width="8" height="8" rx="1"/>
+          <rect x="14" y="2" width="8" height="8" rx="1"/>
+          <rect x="2" y="14" width="8" height="8" rx="1"/>
+          <path d="M14 14h4v4h-4zM22 14v8h-8"/>
+        </svg>
+      </button>
+      <button class="toolbar-btn toolbar-btn-icon" id="tb-fullscreen" title="Pantalla completa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Size indicator (shown on scroll) -->
+  <div class="size-indicator" id="size-indicator">Tamaño: 15</div>
+
+  <!-- QR Overlay -->
+  <div class="qr-overlay hidden" id="qr-overlay">
+    <div class="qr-modal">
+      <div id="qr-content"><p style="color:rgba(255,255,255,0.5)">Cargando...</p></div>
+      <p class="qr-url-text" id="qr-url-text"></p>
+      <button class="qr-close-btn" id="qr-close-btn">Cerrar</button>
+    </div>
+  </div>
+
+  <script>
+    // Load pdf.js
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.onload = () => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      initPresentation();
+    };
+    document.head.appendChild(script);
+
+    let pdfDoc = null;
+    let currentSlide = 1;
+    let totalSlides = 0;
+    let presentationData = null;
+    let activeTool = null;
+    let toolSize = 15;
+    let drawColor = '#ef4444';
+    let isLocalDrawing = false;
+    let toolbarTimeout = null;
+    let sizeIndicatorTimeout = null;
+    let videoPlaying = false;
+    let currentRenderTask = null;
+
+    async function initPresentation() {
+      const params = window.api.getQueryParams();
+      const pdfId = params.pdfId;
+      if (!pdfId) return;
+
+      const stored = await window.api.getPresentations();
+      // Handle both array (legacy) and object { presentations, folders }
+      const presentations = Array.isArray(stored) ? stored : (stored.presentations || []);
+      presentationData = presentations.find(p => p.id === pdfId);
+      if (!presentationData) return;
+
+      const base64 = await window.api.getPdfData(pdfId);
+      const data = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      pdfDoc = await pdfjsLib.getDocument({ data }).promise;
+      totalSlides = pdfDoc.numPages;
+
+      window.api.sendStateUpdate({
+        presenting: true,
+        pdfId,
+        currentSlide: 1,
+        totalSlides,
+        notes: presentationData.notes || {},
+        videos: presentationData.videos || {},
+        name: presentationData.name
+      });
+
+      setupToolbar();
+      setupVideoPlayButton();
+      setupMouseTools();
+      setupKeyboardShortcuts();
+      setupScrollWheel();
+
+      window.api.onPresentationControl(handleControl);
+
+      // Re-render on resize (e.g. fullscreen transition completing)
+      window.addEventListener('resize', () => {
+        if (pdfDoc && currentSlide) {
+          renderSlide(currentSlide);
+        }
+      });
+
+      await renderSlide(1);
+    }
+
+    async function renderSlide(num) {
+      currentSlide = num;
+
+      // Cancel any in-progress render to prevent race conditions
+      if (currentRenderTask) {
+        try { currentRenderTask.cancel(); } catch (e) {}
+        currentRenderTask = null;
+      }
+
+      const page = await pdfDoc.getPage(num);
+      const canvas = document.getElementById('slide-canvas');
+      const container = document.getElementById('presentation-container');
+
+      const containerW = container.clientWidth;
+      const containerH = container.clientHeight;
+      const defaultViewport = page.getViewport({ scale: 1 });
+      const scaleX = containerW / defaultViewport.width;
+      const scaleY = containerH / defaultViewport.height;
+
+      // Use min scale to fit the slide maintaining aspect ratio
+      const scale = Math.min(scaleX, scaleY);
+      const viewport = page.getViewport({ scale });
+
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      const ctx = canvas.getContext('2d');
+      const renderTask = page.render({ canvasContext: ctx, viewport });
+      currentRenderTask = renderTask;
+      try {
+        await renderTask.promise;
+      } catch (e) {
+        if (e.name === 'RenderingCancelledException') return;
+        throw e;
+      }
+      currentRenderTask = null;
+
+      updateVideoOverlay(num);
+
+      const drawCanvas = document.getElementById('draw-overlay');
+      if (drawCanvas.getContext) {
+        drawCanvas.width = canvas.width;
+        drawCanvas.height = canvas.height;
+        const dCtx = drawCanvas.getContext('2d');
+        dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      }
+
+      window.api.sendStateUpdate({
+        currentSlide: num,
+        totalSlides
+      });
+    }
+
+    function updateVideoOverlay(slideNum) {
+      const overlay = document.getElementById('video-overlay');
+      const iframe = document.getElementById('video-iframe');
+
+      if (presentationData.videos && presentationData.videos[slideNum]) {
+        const v = presentationData.videos[slideNum];
+        const videoId = extractYouTubeId(v.url);
+        if (videoId) {
+          iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=0&rel=0&enablejsapi=1`;
+          overlay.style.left = v.x + '%';
+          overlay.style.top = v.y + '%';
+          overlay.style.width = v.w + '%';
+          overlay.style.height = v.h + '%';
+          overlay.classList.remove('hidden');
+          videoPlaying = false;
+          updateVideoPlayButton();
+          return;
+        }
+      }
+      overlay.classList.add('hidden');
+      iframe.src = '';
+    }
+
+    function toggleVideoPlayback() {
+      const iframe = document.getElementById('video-iframe');
+      const overlay = document.getElementById('video-overlay');
+      if (!iframe || !iframe.src || overlay.classList.contains('hidden')) return;
+
+      if (videoPlaying) {
+        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+        videoPlaying = false;
+      } else {
+        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+        videoPlaying = true;
+      }
+      updateVideoPlayButton();
+      window.api.sendStateUpdate({ videoPlaying });
+    }
+
+    function updateVideoPlayButton() {
+      document.getElementById('video-play-icon').classList.toggle('hidden', videoPlaying);
+      document.getElementById('video-pause-icon').classList.toggle('hidden', !videoPlaying);
+    }
+
+    function extractYouTubeId(url) {
+      if (!url) return null;
+      const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+      return match ? match[1] : null;
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides) renderSlide(currentSlide + 1);
+    }
+
+    function prevSlide() {
+      if (currentSlide > 1) renderSlide(currentSlide - 1);
+    }
+
+    function handleControl(action) {
+      if (typeof action === 'object') {
+        switch (action.type) {
+          case 'next': nextSlide(); break;
+          case 'prev': prevSlide(); break;
+          case 'navigate': renderSlide(action.slide); break;
+          case 'tool': setToolFromRemote(action.tool); break;
+          case 'tool-data': handleToolData(action.data); break;
+          case 'tool-size': handleToolSize(action.data); break;
+          case 'video-toggle': toggleVideoPlayback(); break;
+        }
+      } else {
+        switch (action) {
+          case 'next': nextSlide(); break;
+          case 'prev': prevSlide(); break;
+        }
+      }
+    }
+
+    function setToolFromRemote(toolName) {
+      setTool(toolName);
+    }
+
+    function setTool(toolName) {
+      document.querySelectorAll('.tool-overlay').forEach(el => el.classList.add('hidden'));
+      activeTool = toolName || null;
+
+      if (toolName) {
+        const overlay = document.getElementById(toolName + '-overlay');
+        if (overlay) overlay.classList.remove('hidden');
+      }
+
+      // Update toolbar buttons
+      document.querySelectorAll('.toolbar-btn[data-tool]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tool === toolName);
+      });
+
+      window.api.sendStateUpdate({ toolMode: toolName || null });
+    }
+
+    function toggleTool(toolName) {
+      setTool(activeTool === toolName ? null : toolName);
+    }
+
+    function handleToolSize(data) {
+      if (!data) return;
+      switch (data.tool) {
+        case 'pointer': {
+          const dot = document.getElementById('pointer-dot');
+          dot.style.width = data.size + 'px';
+          dot.style.height = data.size + 'px';
+          if (activeTool === 'pointer') toolSize = data.size;
+          break;
+        }
+        case 'flashlight': {
+          const mask = document.getElementById('flashlight-mask');
+          mask.style.setProperty('--r', data.size + '%');
+          if (activeTool === 'flashlight') toolSize = data.size;
+          break;
+        }
+        case 'draw': {
+          if (activeTool === 'draw') toolSize = data.size;
+          break;
+        }
+        case 'zoom': {
+          const lens = document.getElementById('zoom-lens');
+          lens.style.width = data.size + 'px';
+          lens.style.height = data.size + 'px';
+          if (activeTool === 'zoom') toolSize = Math.round(data.size / 10);
+          break;
+        }
+      }
+    }
+
+    function handleToolData(data) {
+      if (!data) return;
+      switch (data.tool) {
+        case 'pointer': {
+          const dot = document.getElementById('pointer-dot');
+          dot.style.left = data.x + '%';
+          dot.style.top = data.y + '%';
+          if (data.size) {
+            dot.style.width = data.size + 'px';
+            dot.style.height = data.size + 'px';
+          }
+          break;
+        }
+        case 'flashlight': {
+          const mask = document.getElementById('flashlight-mask');
+          mask.style.setProperty('--cx', data.x + '%');
+          mask.style.setProperty('--cy', data.y + '%');
+          mask.style.setProperty('--r', (data.r || toolSize) + '%');
+          break;
+        }
+        case 'draw': {
+          // Ensure draw overlay is visible for remote drawing
+          const drawOverlay = document.getElementById('draw-overlay');
+          if (drawOverlay.classList.contains('hidden')) {
+            drawOverlay.classList.remove('hidden');
+          }
+          drawOnCanvas(data);
+          break;
+        }
+        case 'zoom': {
+          const lens = document.getElementById('zoom-lens');
+          lens.style.left = data.x + '%';
+          lens.style.top = data.y + '%';
+          updateZoomCanvas(data.x, data.y);
+          break;
+        }
+      }
+    }
+
+    let isDrawing = false;
+    let lastDrawX = 0;
+    let lastDrawY = 0;
+    const ZOOM_FACTOR = 2.5;
+
+    function updateZoomCanvas(xPercent, yPercent) {
+      const slideCanvas = document.getElementById('slide-canvas');
+      const zoomCanvas = document.getElementById('zoom-canvas');
+      const lens = document.getElementById('zoom-lens');
+      const lensSize = parseInt(lens.style.width) || 200;
+
+      zoomCanvas.width = lensSize;
+      zoomCanvas.height = lensSize;
+
+      const ctx = zoomCanvas.getContext('2d');
+      const srcX = (xPercent / 100) * slideCanvas.width - (lensSize / ZOOM_FACTOR) / 2;
+      const srcY = (yPercent / 100) * slideCanvas.height - (lensSize / ZOOM_FACTOR) / 2;
+      const srcSize = lensSize / ZOOM_FACTOR;
+
+      ctx.clearRect(0, 0, lensSize, lensSize);
+      ctx.drawImage(slideCanvas, srcX, srcY, srcSize, srcSize, 0, 0, lensSize, lensSize);
+    }
+
+    function drawOnCanvas(data) {
+      const canvas = document.getElementById('draw-overlay');
+      const ctx = canvas.getContext('2d');
+      if (data.action === 'start') {
+        isDrawing = true;
+        lastDrawX = data.x * canvas.width / 100;
+        lastDrawY = data.y * canvas.height / 100;
+      } else if (data.action === 'move' && isDrawing) {
+        const newX = data.x * canvas.width / 100;
+        const newY = data.y * canvas.height / 100;
+        ctx.beginPath();
+        ctx.moveTo(lastDrawX, lastDrawY);
+        ctx.lineTo(newX, newY);
+        ctx.strokeStyle = data.color || drawColor;
+        ctx.lineWidth = data.lineWidth || Math.max(1, toolSize / 5);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+        lastDrawX = newX;
+        lastDrawY = newY;
+      } else if (data.action === 'end') {
+        isDrawing = false;
+      } else if (data.action === 'clear') {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    // ===== Video Play Button =====
+    function setupVideoPlayButton() {
+      document.getElementById('video-play-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleVideoPlayback();
+      });
+    }
+
+    // ===== Toolbar =====
+    function setupToolbar() {
+      const toolbar = document.getElementById('toolbar');
+
+      // Show toolbar when mouse near bottom
+      document.addEventListener('mousemove', (e) => {
+        const threshold = window.innerHeight - 80;
+        if (e.clientY > threshold) {
+          showToolbar();
+        } else if (!toolbar.matches(':hover')) {
+          hideToolbarDelayed();
+        }
+      });
+
+      toolbar.addEventListener('mouseenter', () => {
+        showToolbar();
+        document.body.classList.add('show-cursor');
+      });
+
+      toolbar.addEventListener('mouseleave', () => {
+        hideToolbarDelayed();
+      });
+
+      // Tool buttons
+      document.querySelectorAll('.toolbar-btn[data-tool]').forEach(btn => {
+        btn.addEventListener('click', () => toggleTool(btn.dataset.tool));
+      });
+
+      // Clear button
+      document.getElementById('tb-clear').addEventListener('click', () => {
+        const canvas = document.getElementById('draw-overlay');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      });
+
+      // Color buttons
+      document.querySelectorAll('.toolbar-color').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.toolbar-color').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          drawColor = btn.dataset.color;
+        });
+      });
+
+      // Tip size buttons
+      document.querySelectorAll('.toolbar-tip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.toolbar-tip').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const sizes = { small: 5, medium: 15, large: 35 };
+          toolSize = sizes[btn.dataset.tip] || 15;
+          document.getElementById('tool-size-slider').value = toolSize;
+        });
+      });
+
+      // Size slider
+      document.getElementById('tool-size-slider').addEventListener('input', (e) => {
+        toolSize = parseInt(e.target.value);
+      });
+
+      // QR button
+      document.getElementById('tb-qr').addEventListener('click', showQR);
+      document.getElementById('qr-close-btn').addEventListener('click', () => {
+        document.getElementById('qr-overlay').classList.add('hidden');
+      });
+      document.getElementById('qr-overlay').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+          document.getElementById('qr-overlay').classList.add('hidden');
+        }
+      });
+
+      // Fullscreen button
+      document.getElementById('tb-fullscreen').addEventListener('click', () => {
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else {
+          document.documentElement.requestFullscreen();
+        }
+      });
+    }
+
+    function showToolbar() {
+      clearTimeout(toolbarTimeout);
+      document.getElementById('toolbar').classList.add('visible');
+      document.body.classList.add('show-cursor');
+    }
+
+    function hideToolbarDelayed() {
+      clearTimeout(toolbarTimeout);
+      toolbarTimeout = setTimeout(() => {
+        const toolbar = document.getElementById('toolbar');
+        if (!toolbar.matches(':hover')) {
+          toolbar.classList.remove('visible');
+          document.body.classList.remove('show-cursor');
+        }
+      }, 1500);
+    }
+
+    async function showQR() {
+      const overlay = document.getElementById('qr-overlay');
+      overlay.classList.remove('hidden');
+      try {
+        const info = await window.api.getServerInfo();
+        if (!info) return;
+        const resp = await fetch(`http://localhost:${info.port}/api/qr`);
+        const data = await resp.json();
+        document.getElementById('qr-content').innerHTML = `<img src="${data.qr}" alt="QR Code" style="width:250px;height:250px">`;
+        document.getElementById('qr-url-text').textContent = data.url;
+      } catch (err) {
+        document.getElementById('qr-content').innerHTML = '<p style="color:#f85149">Error al cargar QR</p>';
+      }
+    }
+
+    // ===== Mouse Tools =====
+    function setupMouseTools() {
+      const container = document.getElementById('presentation-container');
+      const wrapper = document.getElementById('slide-wrapper');
+
+      function getRelativePos(e) {
+        const rect = wrapper.getBoundingClientRect();
+        return {
+          x: Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)),
+          y: Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100))
+        };
+      }
+
+      container.addEventListener('mousedown', (e) => {
+        if (!activeTool || e.target.closest('.toolbar') || e.target.closest('.qr-overlay')) return;
+        const pos = getRelativePos(e);
+
+        if (activeTool === 'draw') {
+          isLocalDrawing = true;
+          isDrawing = true;
+          const canvas = document.getElementById('draw-overlay');
+          lastDrawX = pos.x * canvas.width / 100;
+          lastDrawY = pos.y * canvas.height / 100;
+        }
+      });
+
+      container.addEventListener('mousemove', (e) => {
+        if (!activeTool || e.target.closest('.toolbar') || e.target.closest('.qr-overlay')) return;
+        const pos = getRelativePos(e);
+
+        switch (activeTool) {
+          case 'flashlight':
+            handleToolData({ tool: 'flashlight', x: pos.x, y: pos.y, r: toolSize });
+            break;
+          case 'pointer':
+            handleToolData({ tool: 'pointer', x: pos.x, y: pos.y });
+            const dot = document.getElementById('pointer-dot');
+            dot.style.width = toolSize + 'px';
+            dot.style.height = toolSize + 'px';
+            break;
+          case 'draw':
+            if (isLocalDrawing) {
+              const canvas = document.getElementById('draw-overlay');
+              const ctx = canvas.getContext('2d');
+              const newX = pos.x * canvas.width / 100;
+              const newY = pos.y * canvas.height / 100;
+              ctx.beginPath();
+              ctx.moveTo(lastDrawX, lastDrawY);
+              ctx.lineTo(newX, newY);
+              ctx.strokeStyle = drawColor;
+              ctx.lineWidth = Math.max(1, toolSize / 5);
+              ctx.lineCap = 'round';
+              ctx.lineJoin = 'round';
+              ctx.stroke();
+              lastDrawX = newX;
+              lastDrawY = newY;
+            }
+            break;
+          case 'zoom':
+            handleToolData({ tool: 'zoom', x: pos.x, y: pos.y });
+            const lens = document.getElementById('zoom-lens');
+            lens.style.width = (toolSize * 10) + 'px';
+            lens.style.height = (toolSize * 10) + 'px';
+            updateZoomCanvas(pos.x, pos.y);
+            break;
+        }
+      });
+
+      container.addEventListener('mouseup', () => {
+        if (isLocalDrawing) {
+          isLocalDrawing = false;
+          isDrawing = false;
+        }
+      });
+    }
+
+    // ===== Keyboard Shortcuts =====
+    function setupKeyboardShortcuts() {
+      document.addEventListener('keydown', (e) => {
+        // Tool shortcuts (Cmd/Ctrl+key)
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+          switch (e.key.toLowerCase()) {
+            case 'l':
+              e.preventDefault();
+              toggleTool('flashlight');
+              return;
+            case 'd':
+              e.preventDefault();
+              toggleTool('draw');
+              return;
+            case 'p':
+              e.preventDefault();
+              toggleTool('pointer');
+              return;
+            case 'm':
+              e.preventDefault();
+              toggleTool('zoom');
+              return;
+          }
+        }
+
+        // Navigation (no modifiers)
+        if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
+          switch (e.key) {
+            case 'ArrowRight':
+            case 'ArrowDown':
+            case ' ':
+            case 'PageDown':
+              nextSlide();
+              break;
+            case 'ArrowLeft':
+            case 'ArrowUp':
+            case 'PageUp':
+              prevSlide();
+              break;
+            case 'Escape':
+              if (activeTool) {
+                setTool(null);
+              } else if (!document.getElementById('qr-overlay').classList.contains('hidden')) {
+                document.getElementById('qr-overlay').classList.add('hidden');
+              } else {
+                window.api.stopPresentation();
+              }
+              break;
+          }
+        }
+      });
+    }
+
+    // ===== Scroll Wheel for Size =====
+    function setupScrollWheel() {
+      document.addEventListener('wheel', (e) => {
+        if (!activeTool) return;
+        e.preventDefault();
+
+        const delta = e.deltaY > 0 ? -1 : 1;
+        toolSize = Math.max(2, Math.min(50, toolSize + delta));
+
+        const slider = document.getElementById('tool-size-slider');
+        if (slider) slider.value = toolSize;
+
+        // Show size indicator
+        const indicator = document.getElementById('size-indicator');
+        indicator.textContent = `Tamaño: ${toolSize}`;
+        indicator.classList.add('show');
+        clearTimeout(sizeIndicatorTimeout);
+        sizeIndicatorTimeout = setTimeout(() => {
+          indicator.classList.remove('show');
+        }, 800);
+
+        // Live update active tool
+        if (activeTool === 'flashlight') {
+          const mask = document.getElementById('flashlight-mask');
+          mask.style.setProperty('--r', toolSize + '%');
+        }
+        if (activeTool === 'pointer') {
+          const dot = document.getElementById('pointer-dot');
+          dot.style.width = toolSize + 'px';
+          dot.style.height = toolSize + 'px';
+        }
+        if (activeTool === 'zoom') {
+          const lens = document.getElementById('zoom-lens');
+          lens.style.width = (toolSize * 10) + 'px';
+          lens.style.height = (toolSize * 10) + 'px';
+        }
+      }, { passive: false });
+    }
+  </script>
+</body>
+</html>
