@@ -13,7 +13,7 @@
     
       <!-- YouTube video overlay -->
       <div class="video-overlay hidden" id="video-overlay">
-        <iframe id="video-iframe" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <iframe id="video-iframe" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
         <div class="video-controls" id="video-controls">
           <button class="video-play-btn" id="video-play-btn" title="Reproducir/Pausar">
             <svg id="video-play-icon" width="48" height="48" viewBox="0 0 24 24" fill="white">
@@ -180,10 +180,12 @@
       pdfDoc = await pdfjsLib.getDocument({ data }).promise;
       totalSlides = pdfDoc.numPages;
 
+      const startSlide = Math.min(Math.max(parseInt(params.startSlide) || 1, 1), totalSlides);
+
       window.api.sendStateUpdate({
         presenting: true,
         pdfId,
-        currentSlide: 1,
+        currentSlide: startSlide,
         totalSlides,
         notes: presentationData.notes || {},
         videos: presentationData.videos || {},
@@ -205,7 +207,7 @@
         }
       });
 
-      await renderSlide(1);
+      await renderSlide(startSlide);
     }
 
     async function renderSlide(num) {
@@ -273,7 +275,8 @@
         const videoId = extractYouTubeId(v.url);
         if (videoId) {
           currentVideoId = videoId;
-          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0`;
+          const origin = encodeURIComponent(window.location.origin);
+          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&origin=${origin}`;
           overlay.style.left = v.x + '%';
           overlay.style.top = v.y + '%';
           overlay.style.width = v.w + '%';
@@ -295,10 +298,12 @@
       if (!currentVideoId || overlay.classList.contains('hidden')) return;
 
       if (videoPlaying) {
-        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0`;
+        const origin = encodeURIComponent(window.location.origin);
+        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&origin=${origin}`;
         videoPlaying = false;
       } else {
-        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&autoplay=1`;
+        const origin = encodeURIComponent(window.location.origin);
+        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&autoplay=1&origin=${origin}`;
         videoPlaying = true;
       }
       updateVideoPlayButton();

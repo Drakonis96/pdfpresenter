@@ -42,7 +42,7 @@ function createMainWindow() {
   });
 }
 
-function createPresentationWindow(pdfId) {
+function createPresentationWindow(pdfId, startSlide) {
   const displays = screen.getAllDisplays();
   const externalDisplay = displays.length > 1 ? displays[1] : displays[0];
 
@@ -63,7 +63,9 @@ function createPresentationWindow(pdfId) {
 
   const info = getServerInfo();
   const port = info ? info.port : 3491;
-  presentationWindow.loadURL(`http://localhost:${port}/src/presentation.html?pdfId=${encodeURIComponent(pdfId)}`);
+  let url = `http://localhost:${port}/src/presentation.html?pdfId=${encodeURIComponent(pdfId)}`;
+  if (startSlide && startSlide > 1) url += `&startSlide=${startSlide}`;
+  presentationWindow.loadURL(url);
 
   presentationWindow.on('closed', () => {
     presentationWindow = null;
@@ -77,7 +79,7 @@ function createPresentationWindow(pdfId) {
   });
 }
 
-function createPresenterWindow(pdfId) {
+function createPresenterWindow(pdfId, startSlide) {
   const displays = screen.getAllDisplays();
   const primaryDisplay = displays[0];
 
@@ -98,7 +100,9 @@ function createPresenterWindow(pdfId) {
 
   const info = getServerInfo();
   const port = info ? info.port : 3491;
-  presenterWindow.loadURL(`http://localhost:${port}/src/presenter.html?pdfId=${encodeURIComponent(pdfId)}`);
+  let url = `http://localhost:${port}/src/presenter.html?pdfId=${encodeURIComponent(pdfId)}`;
+  if (startSlide && startSlide > 1) url += `&startSlide=${startSlide}`;
+  presenterWindow.loadURL(url);
 
   presenterWindow.on('closed', () => {
     presenterWindow = null;
@@ -193,14 +197,14 @@ ipcMain.handle('get-pdf-data', (event, pdfId) => {
   return fs.readFileSync(filePath).toString('base64');
 });
 
-ipcMain.handle('start-presentation', (event, pdfId) => {
-  createPresentationWindow(pdfId);
+ipcMain.handle('start-presentation', (event, pdfId, startSlide) => {
+  createPresentationWindow(pdfId, startSlide);
   return true;
 });
 
-ipcMain.handle('start-presenter-mode', (event, pdfId) => {
-  createPresentationWindow(pdfId);
-  createPresenterWindow(pdfId);
+ipcMain.handle('start-presenter-mode', (event, pdfId, startSlide) => {
+  createPresentationWindow(pdfId, startSlide);
+  createPresenterWindow(pdfId, startSlide);
   return true;
 });
 
@@ -264,20 +268,15 @@ ipcMain.on('presenter-control', (event, action) => {
 app.whenReady().then(async () => {
   ensureDataDir();
 
-  // Override User-Agent for YouTube requests to look like standard Chrome
-  // Electron's UA includes "Electron/" and app name which YouTube flags as a bot
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*', '*://*.googlevideo.com/*', '*://*.google.com/*'] },
-    (details, callback) => {
-      const chromeUA = details.requestHeaders['User-Agent']
-        .replace(/Electron\/[\S]+\s?/g, '')
-        .replace(/pdfpresenter\/[\S]+\s?/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      details.requestHeaders['User-Agent'] = chromeUA;
-      callback({ requestHeaders: details.requestHeaders });
-    }
-  );
+  // Override User-Agent to look like standard Chrome (not Electron)
+  // Electron's UA includes "Electron/" and app name which YouTube/Google flag as a bot
+  const defaultUA = session.defaultSession.getUserAgent();
+  const cleanUA = defaultUA
+    .replace(/\s*Electron\/[\S]+/g, '')
+    .replace(/\s*pdfpresenter\/[\S]+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  session.defaultSession.setUserAgent(cleanUA);
 
   // Set dock icon on macOS
   if (process.platform === 'darwin' && app.dock) {

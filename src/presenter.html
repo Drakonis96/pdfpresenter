@@ -70,7 +70,7 @@
 
             <!-- YouTube video overlay -->
             <div class="video-overlay hidden" id="video-overlay">
-              <iframe id="video-iframe" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+              <iframe id="video-iframe" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
               <div class="video-controls" id="video-controls">
                 <button class="video-play-btn" id="video-play-btn" title="Reproducir/Pausar">
                   <svg id="video-play-icon" width="36" height="36" viewBox="0 0 24 24" fill="white">
@@ -249,7 +249,8 @@
       pdfDoc = await pdfjsLib.getDocument({ data }).promise;
       totalSlides = pdfDoc.numPages;
 
-      renderSlide(1);
+      const startSlide = Math.min(Math.max(parseInt(params.startSlide) || 1, 1), totalSlides);
+      renderSlide(startSlide);
       setupTools();
       setupNavigation();
       setupTimer();
@@ -356,7 +357,8 @@
         const videoId = extractYouTubeId(v.url);
         if (videoId) {
           currentVideoId = videoId;
-          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0`;
+          const origin = encodeURIComponent(window.location.origin);
+          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&mute=1&origin=${origin}`;
           overlay.style.left = v.x + '%';
           overlay.style.top = v.y + '%';
           overlay.style.width = v.w + '%';
@@ -374,19 +376,25 @@
       iframe.src = '';
     }
 
-    function toggleVideoPlayback() {
+    function toggleVideoPlaybackLocal() {
       const iframe = document.getElementById('video-iframe');
       const overlay = document.getElementById('video-overlay');
       if (!currentVideoId || overlay.classList.contains('hidden')) return;
 
       if (videoPlaying) {
-        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0`;
+        const origin = encodeURIComponent(window.location.origin);
+        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&mute=1&origin=${origin}`;
         videoPlaying = false;
       } else {
-        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&autoplay=1`;
+        const origin = encodeURIComponent(window.location.origin);
+        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&autoplay=1&mute=1&origin=${origin}`;
         videoPlaying = true;
       }
       updateVideoPlayButton();
+    }
+
+    function toggleVideoPlayback() {
+      toggleVideoPlaybackLocal();
       // Forward to audience window
       window.api.sendPresenterControl({ type: 'video-toggle' });
     }
@@ -948,7 +956,7 @@
           case 'tool': setTool(action.tool); break;
           case 'tool-data': handleToolDataFromRemote(action.data); break;
           case 'tool-size': handleToolSizeFromRemote(action.data); break;
-          case 'video-toggle': toggleVideoPlayback(); break;
+          case 'video-toggle': toggleVideoPlaybackLocal(); break;
         }
       }
     }

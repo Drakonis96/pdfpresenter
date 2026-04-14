@@ -351,12 +351,60 @@ body {
   border: 2px solid transparent;
   cursor: pointer;
   transition: all 0.15s;
+  position: relative;
 }
 
 .slide-thumb:hover {
   border-color: var(--accent);
   transform: translateY(-2px);
   box-shadow: var(--shadow);
+}
+
+.slide-thumb-actions {
+  position: absolute;
+  bottom: 36px;
+  right: 4px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.slide-thumb:hover .slide-thumb-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.slide-quick-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.1s;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+
+.slide-quick-btn:hover {
+  background: var(--accent-hover);
+  transform: scale(1.1);
+}
+
+.slide-quick-btn[data-action="presenter"] {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.slide-quick-btn[data-action="presenter"]:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
 }
 
 .slide-thumb canvas {
@@ -483,6 +531,15 @@ body {
 .input:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.form-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+  opacity: 0.8;
 }
 
 .form-actions {

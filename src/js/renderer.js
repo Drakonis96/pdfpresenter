@@ -302,9 +302,40 @@ async function renderThumbnails() {
       </div>
     `;
 
+    const actions = document.createElement('div');
+    actions.className = 'slide-thumb-actions';
+    actions.innerHTML = `
+      <button class="slide-quick-btn" data-action="present" data-slide="${i}" title="${t('detail.startPresentation')}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+      </button>
+      <button class="slide-quick-btn" data-action="presenter" data-slide="${i}" title="${t('detail.presenterMode')}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      </button>
+    `;
+
     div.appendChild(canvas);
+    div.appendChild(actions);
     div.appendChild(info);
     grid.appendChild(div);
+
+    // Quick-start buttons
+    actions.querySelectorAll('.slide-quick-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const slide = parseInt(btn.dataset.slide);
+        if (btn.dataset.action === 'present') {
+          startPresentationFromSlide(slide);
+        } else {
+          startPresenterModeFromSlide(slide);
+        }
+      });
+    });
 
     div.addEventListener('click', () => openVideoEditor(i));
   }
@@ -494,10 +525,20 @@ async function startPresentation() {
   await window.api.startPresentation(selectedPdf.id);
 }
 
+async function startPresentationFromSlide(slide) {
+  if (!selectedPdf) return;
+  await window.api.startPresentation(selectedPdf.id, slide);
+}
+
 // Start presenter mode
 async function startPresenterMode() {
   if (!selectedPdf) return;
   await window.api.startPresenterMode(selectedPdf.id);
+}
+
+async function startPresenterModeFromSlide(slide) {
+  if (!selectedPdf) return;
+  await window.api.startPresenterMode(selectedPdf.id, slide);
 }
 
 // Delete presentation (modal-based)
