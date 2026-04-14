@@ -137,6 +137,9 @@
   <!-- Size indicator (shown on scroll) -->
   <div class="size-indicator" id="size-indicator">Tamaño: 15</div>
 
+  <!-- Black screen overlay -->
+  <div class="black-screen-overlay hidden" id="black-screen-overlay"></div>
+
   <!-- QR Overlay -->
   <div class="qr-overlay hidden" id="qr-overlay">
     <div class="qr-modal">
@@ -195,7 +198,8 @@
         totalSlides,
         notes: presentationData.notes || {},
         videos: presentationData.videos || {},
-        name: presentationData.name
+        name: presentationData.name,
+        blackScreen: false
       });
 
       setupToolbar();
@@ -262,6 +266,8 @@
       if (drawCanvas.getContext) {
         drawCanvas.width = canvas.width;
         drawCanvas.height = canvas.height;
+        drawCanvas.style.width = canvas.style.width;
+        drawCanvas.style.height = canvas.style.height;
         const dCtx = drawCanvas.getContext('2d');
         dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       }
@@ -272,65 +278,20 @@
       });
     }
 
-    function updateVideoOverlay(slideNum) {
-      const overlay = document.getElementById('video-overlay');
-      const iframe = document.getElementById('video-iframe');
-
-      if (presentationData.videos && presentationData.videos[slideNum]) {
-        const v = presentationData.videos[slideNum];
-        const videoId = extractYouTubeId(v.url);
-        if (videoId) {
-          currentVideoId = videoId;
-          const origin = encodeURIComponent(window.location.origin);
-          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&enablejsapi=1&origin=${origin}`;
-          overlay.style.left = v.x + '%';
-          overlay.style.top = v.y + '%';
-          overlay.style.width = v.w + '%';
-          overlay.style.height = v.h + '%';
-          overlay.classList.remove('hidden');
-          videoPlaying = false;
-          updateVideoPlayButton();
-          return;
-        }
-      }
-      currentVideoId = null;
-      overlay.classList.add('hidden');
-      iframe.src = '';
-    }
-
-    function toggleVideoPlayback() {
-      const iframe = document.getElementById('video-iframe');
-      const overlay = document.getElementById('video-overlay');
-      if (!currentVideoId || overlay.classList.contains('hidden')) return;
-
-      if (videoPlaying) {
-        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-        videoPlaying = false;
-      } else {
-        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-        videoPlaying = true;
-      }
-      updateVideoPlayButton();
-      window.api.sendStateUpdate({ videoPlaying });
-    }
-
-    function updateVideoPlayButton() {
-      document.getElementById('video-play-icon').classList.toggle('hidden', videoPlaying);
-      document.getElementById('video-pause-icon').classList.toggle('hidden', !videoPlaying);
-    }
-
-    function extractYouTubeId(url) {
-      if (!url) return null;
-      const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube(?:-nocookie)?\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-      return match ? match[1] : null;
-    }
-
     function nextSlide() {
-      if (currentSlide < totalSlides) renderSlide(currentSlide + 1);
+      if (currentSlide < totalSlides) {
+        const nextNum = currentSlide + 1;
+        renderSlide(nextNum);
+        window.api.sendPresentationControlToPresenter({ type: 'navigate', slide: nextNum });
+      }
     }
 
     function prevSlide() {
-      if (currentSlide > 1) renderSlide(currentSlide - 1);
+      if (currentSlide > 1) {
+        const prevNum = currentSlide - 1;
+        renderSlide(prevNum);
+        window.api.sendPresentationControlToPresenter({ type: 'navigate', slide: prevNum });
+      }
     }
 
     function handleControl(action) {
@@ -338,11 +299,19 @@
         switch (action.type) {
           case 'next': nextSlide(); break;
           case 'prev': prevSlide(); break;
-          case 'navigate': renderSlide(action.slide); break;
+          case 'navigate':
+            if (action.slide !== currentSlide) {
+              renderSlide(action.slide);
+            }
+            break;
           case 'tool': setToolFromRemote(action.tool); break;
           case 'tool-data': handleToolData(action.data); break;
           case 'tool-size': handleToolSize(action.data); break;
           case 'video-toggle': toggleVideoPlayback(); break;
+          case 'video-show': showVideoOverlayFromRemote(action.data); break;
+          case 'black-screen':
+            document.getElementById('black-screen-overlay').classList.toggle('hidden', !action.enabled);
+            break;
         }
       } else {
         switch (action) {
@@ -496,11 +465,82 @@
       }
     }
 
-    // ===== Video Play Button =====
+    // ===== Video =====
+    function extractYouTubeId(url) {
+      if (!url) return null;
+      const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube(?:-nocookie)?\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+      return match ? match[1] : null;
+    }
+
+    function updateVideoOverlay(slideNum) {
+      const overlay = document.getElementById('video-overlay');
+      const iframe = document.getElementById('video-iframe');
+
+      if (presentationData.videos && presentationData.videos[slideNum]) {
+        const v = presentationData.videos[slideNum];
+        const videoId = extractYouTubeId(v.url);
+        if (videoId) {
+          currentVideoId = videoId;
+          const origin = encodeURIComponent(window.location.origin);
+          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&enablejsapi=1&origin=${origin}`;
+          overlay.style.left = v.x + '%';
+          overlay.style.top = v.y + '%';
+          overlay.style.width = v.w + '%';
+          overlay.style.height = v.h + '%';
+          overlay.classList.remove('hidden');
+          videoPlaying = false;
+          updateVideoPlayButton();
+          return;
+        }
+      }
+      currentVideoId = null;
+      overlay.classList.add('hidden');
+      iframe.src = '';
+    }
+
+    function toggleVideoPlayback() {
+      const iframe = document.getElementById('video-iframe');
+      const overlay = document.getElementById('video-overlay');
+      if (!currentVideoId || overlay.classList.contains('hidden')) return;
+
+      if (videoPlaying) {
+        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+        videoPlaying = false;
+      } else {
+        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+        videoPlaying = true;
+      }
+      updateVideoPlayButton();
+    }
+
+    function showVideoOverlayFromRemote(data) {
+      if (!data) return;
+      const overlay = document.getElementById('video-overlay');
+      const iframe = document.getElementById('video-iframe');
+      currentVideoId = data.videoId;
+      const origin = encodeURIComponent(window.location.origin);
+      iframe.src = `https://www.youtube-nocookie.com/embed/${data.videoId}?rel=0&enablejsapi=1&origin=${origin}`;
+      overlay.style.left = data.x + '%';
+      overlay.style.top = data.y + '%';
+      overlay.style.width = data.w + '%';
+      overlay.style.height = data.h + '%';
+      overlay.classList.remove('hidden');
+      videoPlaying = false;
+      updateVideoPlayButton();
+    }
+
+    function updateVideoPlayButton() {
+      document.getElementById('video-play-icon').classList.toggle('hidden', videoPlaying);
+      document.getElementById('video-pause-icon').classList.toggle('hidden', !videoPlaying);
+    }
+
     function setupVideoPlayButton() {
       document.getElementById('video-play-btn').addEventListener('click', (e) => {
         e.stopPropagation();
         toggleVideoPlayback();
+        // Sync to presenter and server
+        window.api.sendPresentationControlToPresenter({ type: 'video-toggle' });
+        window.api.sendStateUpdate({ videoPlaying });
       });
     }
 
@@ -737,8 +777,14 @@
             case 'PageUp':
               prevSlide();
               break;
+            case 'b':
+            case 'B':
+              toggleBlackScreen();
+              break;
             case 'Escape':
-              if (activeTool) {
+              if (document.getElementById('black-screen-overlay').classList.contains('hidden') === false) {
+                toggleBlackScreen();
+              } else if (activeTool) {
                 setTool(null);
               } else if (!document.getElementById('qr-overlay').classList.contains('hidden')) {
                 document.getElementById('qr-overlay').classList.add('hidden');
@@ -749,6 +795,16 @@
           }
         }
       });
+    }
+
+    // ===== Black Screen =====
+    function toggleBlackScreen() {
+      const overlay = document.getElementById('black-screen-overlay');
+      const isBlack = overlay.classList.contains('hidden');
+      overlay.classList.toggle('hidden', !isBlack);
+      window.api.sendStateUpdate({ blackScreen: isBlack });
+      // Notify presenter window
+      window.api.sendPresentationControlToPresenter({ type: 'black-screen', enabled: isBlack });
     }
 
     // ===== Scroll Wheel for Size =====

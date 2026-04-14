@@ -42,6 +42,13 @@
             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
           </svg>
         </button>
+        <button class="topbar-btn" id="btn-black-screen" title="Pantalla en negro (B)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </button>
         <button class="topbar-btn" id="btn-qr" title="Mostrar código QR">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="2" y="2" width="8" height="8" rx="1"/>
@@ -232,11 +239,13 @@
     let currentVideoId = null;
     const ZOOM_FACTOR = 2.5;
     let notesFontSize = 15;
+    let renderTasks = {}; // Track in-flight PDF.js render tasks per canvas
 
     // Timer
     let timerRunning = false;
     let timerSeconds = 0;
     let timerInterval = null;
+    let blackScreenEnabled = false;
 
     async function initPresenter() {
       const params = window.api.getQueryParams();
@@ -269,6 +278,7 @@
       setupNoteFontControls();
       setupQRButton();
       setupCastButton();
+      setupBlackScreenButton();
       setupSystemClock();
       renderThumbnailCarousel();
 
@@ -321,15 +331,28 @@
 
       // Send navigation to audience window
       window.api.sendPresenterControl({ type: 'navigate', slide: num });
+
+      // Update server state so mobile remote stays in sync
+      window.api.sendStateUpdate({ currentSlide: num });
     }
 
     async function renderSlideToCanvas(pageNum, canvasId, containerId) {
+      // Cancel any in-progress render for this canvas
+      if (renderTasks[canvasId]) {
+        try { renderTasks[canvasId].cancel(); } catch(e) {}
+        renderTasks[canvasId] = null;
+      }
+
       const page = await pdfDoc.getPage(pageNum);
       const canvas = document.getElementById(canvasId);
       const container = document.getElementById(containerId);
 
       const containerW = container.clientWidth;
       const containerH = container.clientHeight;
+
+      // Skip render if container has no dimensions (window hidden/minimized)
+      if (containerW === 0 || containerH === 0) return;
+
       const defaultViewport = page.getViewport({ scale: 1 });
       const scaleX = containerW / defaultViewport.width;
       const scaleY = containerH / defaultViewport.height;
@@ -337,12 +360,25 @@
       const dpr = window.devicePixelRatio || 1;
       const viewport = page.getViewport({ scale: scale * dpr });
 
-      // Buffer at high resolution; CSS max-width/max-height handles display sizing
+      // Buffer at high resolution; set explicit CSS size for correct display
       canvas.width = viewport.width;
       canvas.height = viewport.height;
+      canvas.style.width = Math.floor(viewport.width / dpr) + 'px';
+      canvas.style.height = Math.floor(viewport.height / dpr) + 'px';
 
       const ctx = canvas.getContext('2d');
-      await page.render({ canvasContext: ctx, viewport }).promise;
+      const renderTask = page.render({ canvasContext: ctx, viewport });
+      renderTasks[canvasId] = renderTask;
+
+      try {
+        await renderTask.promise;
+      } catch(e) {
+        if (e.name !== 'RenderingCancelledException') throw e;
+      } finally {
+        if (renderTasks[canvasId] === renderTask) {
+          renderTasks[canvasId] = null;
+        }
+      }
     }
 
     function updateNotes(slideNum) {
@@ -367,6 +403,7 @@
           currentVideoId = videoId;
           const origin = encodeURIComponent(window.location.origin);
           iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&enablejsapi=1&mute=1&origin=${origin}`;
+          // NOTE: mute=1 intentional — audio should only play in audience view
           overlay.style.left = v.x + '%';
           overlay.style.top = v.y + '%';
           overlay.style.width = v.w + '%';
@@ -403,6 +440,8 @@
       toggleVideoPlaybackLocal();
       // Forward to audience window
       window.api.sendPresenterControl({ type: 'video-toggle' });
+      // Update server state so mobile remote stays in sync
+      window.api.sendStateUpdate({ videoPlaying });
     }
 
     function updateVideoPlayButton() {
@@ -455,6 +494,7 @@
       timerInterval = setInterval(() => {
         timerSeconds++;
         updateTimerDisplay();
+        window.api.sendTimerSync({ timerSeconds, timerRunning: true });
       }, 1000);
     }
 
@@ -463,11 +503,13 @@
       document.getElementById('timer-play-icon').classList.remove('hidden');
       document.getElementById('timer-pause-icon').classList.add('hidden');
       clearInterval(timerInterval);
+      window.api.sendTimerSync({ timerSeconds, timerRunning: false });
     }
 
     function resetTimer() {
       timerSeconds = 0;
       updateTimerDisplay();
+      window.api.sendTimerSync({ timerSeconds: 0, timerRunning });
     }
 
     function updateTimerDisplay() {
@@ -476,6 +518,21 @@
       const s = timerSeconds % 60;
       document.getElementById('timer').textContent =
         `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    // ===== Black Screen =====
+    function toggleBlackScreen() {
+      blackScreenEnabled = !blackScreenEnabled;
+      updateBlackScreenButton();
+      // Forward to audience window
+      window.api.sendPresenterControl({ type: 'black-screen', enabled: blackScreenEnabled });
+      // Update server state so mobile remote stays in sync
+      window.api.sendStateUpdate({ blackScreen: blackScreenEnabled });
+    }
+
+    function updateBlackScreenButton() {
+      const btn = document.getElementById('btn-black-screen');
+      if (btn) btn.classList.toggle('active', blackScreenEnabled);
     }
 
     // ===== Tools =====
@@ -705,6 +762,11 @@
             case 'PageUp':
               e.preventDefault();
               prevSlide();
+              break;
+            case 'b':
+            case 'B':
+              e.preventDefault();
+              toggleBlackScreen();
               break;
             case 'Escape':
               if (activeTool) {
@@ -947,6 +1009,11 @@
       });
     }
 
+    // ===== Black Screen Button =====
+    function setupBlackScreenButton() {
+      document.getElementById('btn-black-screen').addEventListener('click', toggleBlackScreen);
+    }
+
     // ===== System Clock =====
     function setupSystemClock() {
       function updateClock() {
@@ -963,13 +1030,45 @@
     function handleRemoteControl(action) {
       if (typeof action === 'object') {
         switch (action.type) {
-          case 'navigate': renderSlide(action.slide); break;
+          case 'navigate': if (action.slide !== currentSlide) renderSlide(action.slide); break;
           case 'next': nextSlide(); break;
           case 'prev': prevSlide(); break;
           case 'tool': setTool(action.tool); break;
           case 'tool-data': handleToolDataFromRemote(action.data); break;
           case 'tool-size': handleToolSizeFromRemote(action.data); break;
           case 'video-toggle': toggleVideoPlaybackLocal(); break;
+          case 'black-screen':
+            blackScreenEnabled = !!action.enabled;
+            updateBlackScreenButton();
+            break;
+          case 'timer-toggle':
+            if (action.data) {
+              timerRunning = action.data.timerRunning;
+              timerSeconds = action.data.timerSeconds;
+              if (timerRunning) {
+                clearInterval(timerInterval);
+                timerInterval = setInterval(() => {
+                  timerSeconds++;
+                  updateTimerDisplay();
+                  window.api.sendTimerSync({ timerSeconds, timerRunning: true });
+                }, 1000);
+                document.getElementById('timer-play-icon').classList.add('hidden');
+                document.getElementById('timer-pause-icon').classList.remove('hidden');
+              } else {
+                clearInterval(timerInterval);
+                document.getElementById('timer-play-icon').classList.remove('hidden');
+                document.getElementById('timer-pause-icon').classList.add('hidden');
+              }
+              updateTimerDisplay();
+            }
+            break;
+          case 'timer-reset':
+            if (action.data) {
+              timerSeconds = 0;
+              updateTimerDisplay();
+              window.api.sendTimerSync({ timerSeconds: 0, timerRunning });
+            }
+            break;
         }
       }
     }
@@ -1056,6 +1155,18 @@
 
     // Handle resize
     window.addEventListener('resize', () => {
+      if (pdfDoc && currentSlide) {
+        renderSlide(currentSlide);
+      }
+    });
+
+    // Re-render when window regains visibility (e.g. switching from audience screen)
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && pdfDoc && currentSlide) {
+        renderSlide(currentSlide);
+      }
+    });
+    window.addEventListener('focus', () => {
       if (pdfDoc && currentSlide) {
         renderSlide(currentSlide);
       }

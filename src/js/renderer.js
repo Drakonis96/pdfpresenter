@@ -8,6 +8,8 @@ let currentFolder = ''; // '' = root / all
 let searchQuery = '';
 let sortMode = 'recent-added';
 let notesViewerSlide = 1;
+let notesUndoStack = [];
+let notesRedoStack = [];
 let pendingDeleteId = null;
 let pendingMoveId = null;
 let renderGeneration = 0;
@@ -305,12 +307,12 @@ async function renderThumbnails() {
     const actions = document.createElement('div');
     actions.className = 'slide-thumb-actions';
     actions.innerHTML = `
-      <button class="slide-quick-btn" data-action="present" data-slide="${i}" title="${t('detail.startPresentation')}">
+      <button class="btn btn-accent slide-quick-btn" data-action="present" data-slide="${i}" title="${t('detail.startPresentation')}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="5 3 19 12 5 21 5 3"/>
         </svg>
       </button>
-      <button class="slide-quick-btn" data-action="presenter" data-slide="${i}" title="${t('detail.presenterMode')}">
+      <button class="btn btn-accent-secondary slide-quick-btn" data-action="presenter" data-slide="${i}" title="${t('detail.presenterMode')}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
           <line x1="8" y1="21" x2="16" y2="21"/>
@@ -639,10 +641,13 @@ async function deleteFolder(folderId) {
 function openNotesViewer() {
   if (!pdfDoc || !selectedPdf) return;
   notesViewerSlide = 1;
+  notesUndoStack = [];
+  notesRedoStack = [];
   document.getElementById('notes-viewer-modal').classList.remove('hidden');
   renderNotesViewerThumbs();
   renderNotesViewerSlide(1);
   setupNotesViewerResize();
+  setupNotesViewerKeyboard();
 }
 
 async function renderNotesViewerThumbs() {
@@ -683,10 +688,13 @@ async function renderNotesViewerSlide(num) {
   const maxW = canvas.parentElement.clientWidth - 24;
   const maxH = canvas.parentElement.clientHeight - 24;
   const defaultVp = page.getViewport({ scale: 1 });
+  const dpr = window.devicePixelRatio || 1;
   const scale = Math.min(maxW / defaultVp.width, maxH / defaultVp.height, 2);
-  const viewport = page.getViewport({ scale });
+  const viewport = page.getViewport({ scale: scale * dpr });
   canvas.width = viewport.width;
   canvas.height = viewport.height;
+  canvas.style.width = (viewport.width / dpr) + 'px';
+  canvas.style.height = (viewport.height / dpr) + 'px';
   const ctx = canvas.getContext('2d');
   await page.render({ canvasContext: ctx, viewport }).promise;
 
@@ -707,6 +715,11 @@ async function renderNotesViewerSlide(num) {
 async function saveCurrentNote() {
   if (!selectedPdf) return;
   const text = document.getElementById('notes-viewer-textarea').value;
+  const currentNote = selectedPdf.notes && selectedPdf.notes[notesViewerSlide] || '';
+  if (text !== currentNote) {
+    notesUndoStack.push({ slide: notesViewerSlide, note: currentNote });
+    notesRedoStack = [];
+  }
   if (!selectedPdf.notes) selectedPdf.notes = {};
   if (text.trim()) {
     selectedPdf.notes[notesViewerSlide] = text;
@@ -714,10 +727,65 @@ async function saveCurrentNote() {
     delete selectedPdf.notes[notesViewerSlide];
   }
   await saveMeta();
-  // Update thumb indicator
   const thumb = document.querySelector(`.notes-thumb[data-page="${notesViewerSlide}"]`);
   if (thumb) {
     thumb.classList.toggle('notes-thumb-has-note', !!text.trim());
+  }
+  updateDetailInfo();
+  renderThumbnails();
+  showSaveFeedback();
+}
+
+function showSaveFeedback() {
+  const btn = document.getElementById('btn-save-note');
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`;
+  btn.style.color = '#3fb950';
+  setTimeout(() => {
+    btn.innerHTML = originalHtml;
+    btn.style.color = '';
+  }, 1500);
+}
+
+function undoNote() {
+  if (notesUndoStack.length === 0) return;
+  const state = notesUndoStack.pop();
+  notesRedoStack.push({ slide: state.slide, note: selectedPdf.notes && selectedPdf.notes[state.slide] || '' });
+  if (!selectedPdf.notes) selectedPdf.notes = {};
+  if (state.note) {
+    selectedPdf.notes[state.slide] = state.note;
+  } else {
+    delete selectedPdf.notes[state.slide];
+  }
+  saveMeta();
+  if (state.slide !== notesViewerSlide) {
+    renderNotesViewerSlide(state.slide);
+  } else {
+    document.getElementById('notes-viewer-textarea').value = state.note || '';
+    const thumb = document.querySelector(`.notes-thumb[data-page="${state.slide}"]`);
+    if (thumb) thumb.classList.toggle('notes-thumb-has-note', !!state.note);
+  }
+  updateDetailInfo();
+  renderThumbnails();
+}
+
+function redoNote() {
+  if (notesRedoStack.length === 0) return;
+  const state = notesRedoStack.pop();
+  notesUndoStack.push({ slide: state.slide, note: selectedPdf.notes && selectedPdf.notes[state.slide] || '' });
+  if (!selectedPdf.notes) selectedPdf.notes = {};
+  if (state.note) {
+    selectedPdf.notes[state.slide] = state.note;
+  } else {
+    delete selectedPdf.notes[state.slide];
+  }
+  saveMeta();
+  if (state.slide !== notesViewerSlide) {
+    renderNotesViewerSlide(state.slide);
+  } else {
+    document.getElementById('notes-viewer-textarea').value = state.note || '';
+    const thumb = document.querySelector(`.notes-thumb[data-page="${state.slide}"]`);
+    if (thumb) thumb.classList.toggle('notes-thumb-has-note', !!state.note);
   }
   updateDetailInfo();
   renderThumbnails();
@@ -740,14 +808,59 @@ function setupNotesViewerResize() {
     const dy = startY - e.clientY;
     const newH = Math.max(80, Math.min(window.innerHeight * 0.6, startH + dy));
     notesPanel.style.height = newH + 'px';
+    renderNotesViewerSlide(notesViewerSlide);
   };
 
   const onMouseUp = () => {
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
+    renderNotesViewerSlide(notesViewerSlide);
   };
 
   handle.addEventListener('mousedown', onMouseDown);
+}
+
+let notesViewerKeyHandler = null;
+
+function setupNotesViewerKeyboard() {
+  if (notesViewerKeyHandler) {
+    document.removeEventListener('keydown', notesViewerKeyHandler);
+  }
+  notesViewerKeyHandler = (e) => {
+    const modal = document.getElementById('notes-viewer-modal');
+    if (modal.classList.contains('hidden')) return;
+    const textarea = document.getElementById('notes-viewer-textarea');
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const cmdKey = isMac ? e.metaKey : e.ctrlKey;
+
+    if (cmdKey && e.shiftKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      redoNote();
+      return;
+    }
+    if (cmdKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      undoNote();
+      return;
+    }
+
+    if (document.activeElement === textarea) return;
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (notesViewerSlide < pdfDoc.numPages) {
+        saveCurrentNote();
+        renderNotesViewerSlide(notesViewerSlide + 1);
+      }
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (notesViewerSlide > 1) {
+        saveCurrentNote();
+        renderNotesViewerSlide(notesViewerSlide - 1);
+      }
+    }
+  };
+  document.addEventListener('keydown', notesViewerKeyHandler);
 }
 
 // Save meta
@@ -812,6 +925,10 @@ function setupEventListeners() {
   document.getElementById('btn-close-notes-viewer').addEventListener('click', () => {
     saveCurrentNote();
     document.getElementById('notes-viewer-modal').classList.add('hidden');
+    if (notesViewerKeyHandler) {
+      document.removeEventListener('keydown', notesViewerKeyHandler);
+      notesViewerKeyHandler = null;
+    }
   });
   document.getElementById('btn-save-note').addEventListener('click', saveCurrentNote);
 
@@ -865,8 +982,13 @@ function setupEventListeners() {
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
-        // Save notes if closing notes viewer
-        if (overlay.id === 'notes-viewer-modal') saveCurrentNote();
+        if (overlay.id === 'notes-viewer-modal') {
+          saveCurrentNote();
+          if (notesViewerKeyHandler) {
+            document.removeEventListener('keydown', notesViewerKeyHandler);
+            notesViewerKeyHandler = null;
+          }
+        }
         overlay.classList.add('hidden');
       }
     });

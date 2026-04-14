@@ -16,7 +16,11 @@ let currentState = {
   totalSlides: 0,
   notes: {},
   videos: {},
-  toolMode: null // 'flashlight', 'draw', 'pointer', 'zoom'
+  toolMode: null, // 'flashlight', 'draw', 'pointer', 'zoom'
+  videoPlaying: false,
+  timerSeconds: 0,
+  timerRunning: false,
+  blackScreen: false
 };
 
 const clients = new Set();
@@ -105,6 +109,7 @@ function startServer(dataDirPath) {
         switch (msg.type) {
           case 'navigate':
             currentState.currentSlide = msg.slide;
+            currentState.videoPlaying = false;
             broadcast({ type: 'state', data: currentState });
             // Also tell Electron presentation window
             notifyElectron('navigate', msg.slide);
@@ -113,6 +118,7 @@ function startServer(dataDirPath) {
           case 'next':
             if (currentState.currentSlide < currentState.totalSlides) {
               currentState.currentSlide++;
+              currentState.videoPlaying = false;
               broadcast({ type: 'state', data: currentState });
               notifyElectron('next');
             }
@@ -121,6 +127,7 @@ function startServer(dataDirPath) {
           case 'prev':
             if (currentState.currentSlide > 1) {
               currentState.currentSlide--;
+              currentState.videoPlaying = false;
               broadcast({ type: 'state', data: currentState });
               notifyElectron('prev');
             }
@@ -144,7 +151,44 @@ function startServer(dataDirPath) {
             break;
 
           case 'video-toggle':
+            currentState.videoPlaying = !currentState.videoPlaying;
+            broadcast({ type: 'state', data: currentState }, ws);
             notifyElectron('video-toggle');
+            break;
+
+          case 'timer-sync':
+            currentState.timerSeconds = msg.data.timerSeconds;
+            currentState.timerRunning = msg.data.timerRunning;
+            broadcast({ type: 'timer-sync', data: msg.data }, ws);
+            break;
+
+          case 'timer-toggle':
+            currentState.timerRunning = !currentState.timerRunning;
+            broadcast({ type: 'timer-sync', data: { timerSeconds: currentState.timerSeconds, timerRunning: currentState.timerRunning } });
+            notifyElectron('timer-toggle', { timerSeconds: currentState.timerSeconds, timerRunning: currentState.timerRunning });
+            break;
+
+          case 'timer-reset':
+            currentState.timerSeconds = 0;
+            broadcast({ type: 'timer-sync', data: { timerSeconds: 0, timerRunning: currentState.timerRunning } });
+            notifyElectron('timer-reset', { timerSeconds: 0, timerRunning: currentState.timerRunning });
+            break;
+
+          case 'black-screen':
+            currentState.blackScreen = !currentState.blackScreen;
+            broadcast({ type: 'state', data: currentState });
+            notifyElectron('black-screen', currentState.blackScreen);
+            break;
+
+          case 'volume-get':
+            notifyElectron('volume-get', null, (volume) => {
+              ws.send(JSON.stringify({ type: 'volume', data: { volume } }));
+            });
+            break;
+
+          case 'volume-set':
+            notifyElectron('volume-set', msg.data.volume);
+            broadcast({ type: 'volume', data: { volume: msg.data.volume } }, ws);
             break;
 
           case 'state-update':
@@ -173,8 +217,8 @@ let electronCallback = null;
 function setElectronCallback(cb) {
   electronCallback = cb;
 }
-function notifyElectron(action, data) {
-  if (electronCallback) electronCallback(action, data);
+function notifyElectron(action, data, replyCallback) {
+  if (electronCallback) electronCallback(action, data, replyCallback);
 }
 
 function updateState(newState) {

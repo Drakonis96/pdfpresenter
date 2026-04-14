@@ -115,6 +115,11 @@ body {
   color: #fca5a5;
 }
 
+#btn-black-screen.active {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
 /* ===== Main Area ===== */
 .presenter-main {
   display: flex;

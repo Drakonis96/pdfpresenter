@@ -266,6 +266,13 @@ ipcMain.on('presenter-control', (event, action) => {
   }
 });
 
+// Forward presentation control to presenter window (from audience/presentation view)
+ipcMain.on('presentation-control-to-presenter', (event, action) => {
+  if (presenterWindow) {
+    presenterWindow.webContents.send('presentation-control', action);
+  }
+});
+
 // Cast / AirPlay: open macOS Screen Mirroring picker
 ipcMain.handle('show-cast-picker', async () => {
   if (process.platform !== 'darwin') return false;
@@ -324,8 +331,46 @@ app.whenReady().then(async () => {
   await startServer(DATA_DIR);
   
   // Bridge server events to Electron windows
-  const { setElectronCallback, updateState } = require('./server');
-  setElectronCallback((action, data) => {
+  const { setElectronCallback, updateState, broadcast } = require('./server');
+  setElectronCallback((action, data, replyCallback) => {
+    if (action === 'volume-get') {
+      if (process.platform === 'darwin') {
+        execFile('osascript', ['-e', 'output volume of (get volume settings)'], (err, stdout) => {
+          const vol = err ? 50 : parseInt(stdout.trim()) || 50;
+          if (replyCallback) replyCallback(vol);
+        });
+      } else {
+        if (replyCallback) replyCallback(50);
+      }
+      return;
+    }
+
+    if (action === 'volume-set') {
+      if (process.platform === 'darwin') {
+        const vol = Math.max(0, Math.min(100, parseInt(data) || 0));
+        execFile('osascript', ['-e', `set volume output volume ${vol}`]);
+      }
+      return;
+    }
+
+    if (action === 'black-screen') {
+      const msg = { type: 'black-screen', enabled: data };
+      if (presentationWindow) {
+        presentationWindow.webContents.send('presentation-control', msg);
+      }
+      if (presenterWindow) {
+        presenterWindow.webContents.send('presentation-control', msg);
+      }
+      return;
+    }
+
+    if (action === 'timer-toggle' || action === 'timer-reset') {
+      if (presenterWindow) {
+        presenterWindow.webContents.send('presentation-control', { type: action, data });
+      }
+      return;
+    }
+
     const msg = { type: action };
     if (action === 'navigate') msg.slide = data;
     else if (action === 'tool') msg.tool = data;
@@ -337,6 +382,12 @@ app.whenReady().then(async () => {
     if (presenterWindow) {
       presenterWindow.webContents.send('presentation-control', msg);
     }
+  });
+
+  // Forward timer-sync from presenter to all clients
+  ipcMain.on('timer-sync', (event, data) => {
+    updateState({ timerSeconds: data.timerSeconds, timerRunning: data.timerRunning });
+    broadcast({ type: 'timer-sync', data });
   });
 
   // When presentation window sends state updates, push to server

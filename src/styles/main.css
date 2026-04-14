@@ -376,12 +376,18 @@ body {
   pointer-events: auto;
 }
 
+.slide-thumb-actions .btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
 .slide-quick-btn {
   width: 28px;
   height: 28px;
+  padding: 0;
   border: none;
   border-radius: var(--radius);
-  background: var(--accent);
   color: white;
   cursor: pointer;
   display: flex;
@@ -392,19 +398,11 @@ body {
 }
 
 .slide-quick-btn:hover {
-  background: var(--accent-hover);
   transform: scale(1.1);
 }
 
-.slide-quick-btn[data-action="presenter"] {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-}
-
 .slide-quick-btn[data-action="presenter"]:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--accent);
+  background: #818cf8;
 }
 
 .slide-thumb canvas {

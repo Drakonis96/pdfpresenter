@@ -13,6 +13,9 @@ let activeTool = null;
 let fontSize = 16;
 let pdfDoc = null;
 let toolSizes = { pointer: 20, flashlight: 15, draw: 4, zoom: 200 };
+let localTimerSeconds = 0;
+let localTimerRunning = false;
+let localTimerInterval = null;
 
 // Load pdf.js
 function loadPdfJs() {
@@ -36,6 +39,8 @@ function connect() {
   
   ws.onopen = () => {
     console.log('Connected');
+    // Request current volume level
+    send({ type: 'volume-get' });
   };
   
   ws.onmessage = (event) => {
@@ -51,6 +56,14 @@ function connect() {
       case 'tool-size':
         if (msg.data && msg.data.tool) {
           toolSizes[msg.data.tool] = msg.data.size;
+        }
+        break;
+      case 'timer-sync':
+        handleTimerSync(msg.data);
+        break;
+      case 'volume':
+        if (msg.data) {
+          updateVolumeUI(msg.data.volume);
         }
         break;
     }
@@ -83,6 +96,11 @@ async function handleStateUpdate(newState) {
   if (state.presenting) {
     showScreen('screen-remote');
     
+    // Sync timer from initial state
+    if (newState.timerSeconds !== undefined) {
+      handleTimerSync({ timerSeconds: newState.timerSeconds, timerRunning: newState.timerRunning });
+    }
+    
     // Load PDF if needed
     if (state.pdfId && state.pdfId !== prevPdfId) {
       await loadPdf(state.pdfId);
@@ -90,6 +108,7 @@ async function handleStateUpdate(newState) {
     
     updateUI();
     updateVideoToggleButton();
+    updateBlackScreenButton();
     
     if (state.currentSlide !== prevSlide || state.pdfId !== prevPdfId) {
       await renderPreview(state.currentSlide);
@@ -136,10 +155,33 @@ async function renderPreview(slideNum) {
   await page.render({ canvasContext: ctx, viewport }).promise;
 }
 
+function handleTimerSync(data) {
+  localTimerSeconds = data.timerSeconds;
+  localTimerRunning = data.timerRunning;
+  updateMobileTimerDisplay();
+
+  // Start/stop local tick to keep display updating between syncs
+  clearInterval(localTimerInterval);
+  if (localTimerRunning) {
+    localTimerInterval = setInterval(() => {
+      localTimerSeconds++;
+      updateMobileTimerDisplay();
+    }, 1000);
+  }
+}
+
+function updateMobileTimerDisplay() {
+  const h = Math.floor(localTimerSeconds / 3600);
+  const m = Math.floor((localTimerSeconds % 3600) / 60);
+  const s = localTimerSeconds % 60;
+  const el = document.getElementById('mobile-timer');
+  if (el) {
+    el.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    el.classList.toggle('paused', !localTimerRunning);
+  }
+}
+
 function updateUI() {
-  // Title
-  document.getElementById('presentation-title').textContent = state.name || 'Presentación';
-  
   // Slide counter
   document.getElementById('slide-counter').textContent = `${state.currentSlide} / ${state.totalSlides}`;
   
@@ -157,6 +199,7 @@ function updateUI() {
   } else {
     notesContent.innerHTML = '<p class="notes-empty">Sin notas para esta diapositiva</p>';
   }
+  notesContent.scrollTop = 0;
   notesContent.style.fontSize = fontSize + 'px';
   
   // Dots
@@ -228,6 +271,21 @@ function updateVideoToggleButton() {
 
 document.getElementById('btn-video-toggle').addEventListener('click', () => {
   send({ type: 'video-toggle' });
+});
+
+// Timer toggle (click on timer to pause/resume)
+document.getElementById('mobile-timer').addEventListener('click', () => {
+  send({ type: 'timer-toggle' });
+});
+
+// Timer reset
+document.getElementById('btn-timer-reset').addEventListener('click', () => {
+  send({ type: 'timer-reset' });
+});
+
+// Black screen toggle
+document.getElementById('btn-black-screen').addEventListener('click', () => {
+  send({ type: 'black-screen' });
 });
 
 // Preview tool overlays
@@ -328,7 +386,7 @@ function renderToolOnPreview(data) {
         ctx.beginPath();
         ctx.moveTo(previewLastX, previewLastY);
         ctx.lineTo(newX, newY);
-        ctx.strokeStyle = data.color || '#6366f1';
+        ctx.strokeStyle = data.color || '#ef4444';
         ctx.lineWidth = Math.max(1, (data.lineWidth || toolSizes.draw) / 2);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -413,7 +471,7 @@ touchArea.addEventListener('touchstart', (e) => {
   let data;
   
   if (activeTool === 'draw') {
-    data = { tool: 'draw', action: 'start', ...pos, lineWidth: toolSizes.draw };
+    data = { tool: 'draw', action: 'start', ...pos, lineWidth: toolSizes.draw, color: '#ef4444' };
   } else if (activeTool === 'flashlight') {
     data = { tool: 'flashlight', ...pos, r: toolSizes.flashlight };
   } else {
@@ -430,7 +488,7 @@ touchArea.addEventListener('touchmove', (e) => {
   let data;
   
   if (activeTool === 'draw') {
-    data = { tool: 'draw', action: 'move', ...pos, lineWidth: toolSizes.draw };
+    data = { tool: 'draw', action: 'move', ...pos, lineWidth: toolSizes.draw, color: '#ef4444' };
   } else if (activeTool === 'flashlight') {
     data = { tool: 'flashlight', ...pos, r: toolSizes.flashlight };
   } else {
@@ -520,6 +578,35 @@ document.getElementById('btn-font-increase').addEventListener('click', () => {
       updatePreviewToolSize(tool);
     });
   });
+
+  // Volume slider
+  const volumeSlider = document.getElementById('volume-slider');
+  const volumeVal = document.getElementById('volume-val');
+  let volumeTimeout = null;
+  volumeSlider.addEventListener('input', () => {
+    const vol = parseInt(volumeSlider.value);
+    volumeVal.textContent = vol;
+    clearTimeout(volumeTimeout);
+    volumeTimeout = setTimeout(() => {
+      send({ type: 'volume-set', data: { volume: vol } });
+    }, 100);
+  });
+
+  // Mute button
+  let lastVolume = 50;
+  document.getElementById('btn-volume-mute').addEventListener('click', () => {
+    const current = parseInt(volumeSlider.value);
+    if (current > 0) {
+      lastVolume = current;
+      volumeSlider.value = 0;
+      volumeVal.textContent = '0';
+      send({ type: 'volume-set', data: { volume: 0 } });
+    } else {
+      volumeSlider.value = lastVolume;
+      volumeVal.textContent = lastVolume;
+      send({ type: 'volume-set', data: { volume: lastVolume } });
+    }
+  });
 })();
 
 // Utility
@@ -527,6 +614,20 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Black screen button state
+function updateBlackScreenButton() {
+  const btn = document.getElementById('btn-black-screen');
+  if (btn) btn.classList.toggle('active', !!state.blackScreen);
+}
+
+// Volume UI
+function updateVolumeUI(vol) {
+  const slider = document.getElementById('volume-slider');
+  const valEl = document.getElementById('volume-val');
+  if (slider) slider.value = vol;
+  if (valEl) valEl.textContent = vol;
 }
 
 // Swipe gestures for navigation
@@ -554,10 +655,124 @@ slideArea.addEventListener('touchend', (e) => {
   }
 }, { passive: true });
 
+// Carousel
+let carouselRendered = false;
+let carouselRenderedPdfId = null;
+
+function openCarousel() {
+  const overlay = document.getElementById('carousel-overlay');
+  const track = document.getElementById('carousel-track');
+  overlay.classList.remove('hidden');
+
+  // Only re-render thumbnails if PDF changed
+  if (carouselRendered && carouselRenderedPdfId === state.pdfId) {
+    updateCarouselActive(track);
+    scrollCarouselToActive(track);
+  } else {
+    renderCarouselThumbnails(track);
+  }
+}
+
+function closeCarousel() {
+  document.getElementById('carousel-overlay').classList.add('hidden');
+}
+
+function updateCarouselActive(track) {
+  track.querySelectorAll('.carousel-item').forEach(el => {
+    const s = parseInt(el.dataset.slide);
+    el.classList.toggle('active', s === state.currentSlide);
+  });
+}
+
+function scrollCarouselToActive(track) {
+  const activeItem = track.querySelector('.carousel-item.active');
+  if (activeItem) {
+    const trackRect = track.getBoundingClientRect();
+    const itemRect = activeItem.getBoundingClientRect();
+    const scrollLeft = track.scrollLeft + (itemRect.left - trackRect.left) - (trackRect.width / 2) + (itemRect.width / 2);
+    track.scrollLeft = scrollLeft;
+  }
+}
+
+async function renderCarouselThumbnails(track) {
+  if (!pdfDoc) return;
+  track.innerHTML = '';
+
+  const thumbWidth = 200;
+  const dpr = window.devicePixelRatio || 1;
+
+  // Pre-create all items with placeholder canvases (fixed size) to avoid layout shifts
+  const items = [];
+  // Get first page to determine aspect ratio
+  const firstPage = await pdfDoc.getPage(1);
+  const firstVp = firstPage.getViewport({ scale: 1 });
+  const placeholderScale = thumbWidth / firstVp.width;
+  const placeholderH = Math.round(firstVp.height * placeholderScale);
+
+  for (let i = 1; i <= pdfDoc.numPages; i++) {
+    const item = document.createElement('div');
+    item.className = 'carousel-item' + (i === state.currentSlide ? ' active' : '');
+    item.dataset.slide = i;
+
+    const canvas = document.createElement('canvas');
+    // Set fixed display size immediately to prevent layout shifts
+    canvas.style.width = thumbWidth + 'px';
+    canvas.style.height = placeholderH + 'px';
+    canvas.width = Math.round(thumbWidth * dpr);
+    canvas.height = Math.round(placeholderH * dpr);
+
+    const label = document.createElement('span');
+    label.className = 'carousel-label';
+    label.textContent = i;
+
+    item.appendChild(canvas);
+    item.appendChild(label);
+    track.appendChild(item);
+    items.push({ item, canvas, slideNum: i });
+
+    item.addEventListener('click', () => {
+      send({ type: 'navigate', slide: i });
+      closeCarousel();
+    });
+  }
+
+  // Scroll to active slide immediately (before rendering)
+  scrollCarouselToActive(track);
+
+  // Now render thumbnails without causing layout shifts
+  for (const { canvas, slideNum } of items) {
+    const page = await pdfDoc.getPage(slideNum);
+    const vp = page.getViewport({ scale: 1 });
+    const scale = thumbWidth / vp.width;
+    const viewport = page.getViewport({ scale });
+
+    canvas.width = Math.round(viewport.width * dpr);
+    canvas.height = Math.round(viewport.height * dpr);
+    canvas.style.width = viewport.width + 'px';
+    canvas.style.height = viewport.height + 'px';
+
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+  }
+
+  carouselRendered = true;
+  carouselRenderedPdfId = state.pdfId;
+}
+
+document.getElementById('btn-carousel').addEventListener('click', openCarousel);
+document.getElementById('carousel-close').addEventListener('click', closeCarousel);
+document.getElementById('carousel-backdrop').addEventListener('click', closeCarousel);
+
 // Init
 async function init() {
   await loadPdfJs();
   connect();
+
+  // Initialize timer from state if available
+  if (state.timerSeconds !== undefined) {
+    handleTimerSync({ timerSeconds: state.timerSeconds, timerRunning: state.timerRunning });
+  }
 }
 
 init();

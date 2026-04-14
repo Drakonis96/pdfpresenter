@@ -104,6 +104,31 @@ html, body {
   flex: 1;
 }
 
+.mobile-timer {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.mobile-timer:active {
+  background: var(--bg-hover);
+}
+
+.mobile-timer.paused {
+  color: var(--text-muted);
+}
+
+.btn-timer-reset {
+  color: var(--text-muted) !important;
+  padding: 4px !important;
+}
+
 .presentation-title {
   font-size: 14px;
   font-weight: 500;
@@ -286,6 +311,12 @@ html, body {
 
 .tool-btn.active[data-tool="zoom"] {
   background: var(--accent);
+}
+
+/* Black screen button active state */
+#btn-black-screen.active {
+  background: var(--red);
+  color: white;
 }
 
 .tool-extra {
@@ -524,4 +555,123 @@ html, body {
   color: var(--text-sec);
   min-width: 28px;
   text-align: right;
+}
+
+.tool-size-panel .section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 8px;
+  margin-bottom: 16px;
+  color: var(--text);
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.volume-row {
+  gap: 8px;
+}
+
+.btn-volume-mute {
+  padding: 4px !important;
+  flex-shrink: 0;
+}
+
+/* Slide carousel overlay */
+.carousel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.carousel-overlay.hidden {
+  display: none !important;
+}
+
+.carousel-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.carousel-container {
+  position: relative;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+}
+
+.carousel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.carousel-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.carousel-close {
+  color: var(--text-sec);
+}
+
+.carousel-track {
+  display: flex;
+  gap: 12px;
+  padding: 8px 16px 24px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.carousel-track::-webkit-scrollbar {
+  display: none;
+}
+
+.carousel-item {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  padding: 4px;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.carousel-item.active {
+  border-color: var(--accent);
+}
+
+.carousel-item canvas {
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.carousel-item:active {
+  transform: scale(0.97);
+}
+
+.carousel-label {
+  font-size: 12px;
+  color: var(--text-sec);
+  font-weight: 500;
+}
+
+.carousel-item.active .carousel-label {
+  color: var(--accent);
+  font-weight: 600;
 }

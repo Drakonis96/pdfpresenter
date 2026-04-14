@@ -19,7 +19,13 @@ contextBridge.exposeInMainWorld('api', {
   
   // Presenter control (from presenter view to audience)
   sendPresenterControl: (action) => ipcRenderer.send('presenter-control', action),
-  
+
+  // Presentation control to presenter window (from audience to presenter)
+  sendPresentationControlToPresenter: (action) => ipcRenderer.send('presentation-control-to-presenter', action),
+
+  // Timer sync
+  sendTimerSync: (data) => ipcRenderer.send('timer-sync', data),
+
   // State updates
   sendStateUpdate: (state) => ipcRenderer.send('presentation-state-update', state),
   onStateUpdate: (callback) => ipcRenderer.on('presentation-state-update', (_, state) => callback(state)),
