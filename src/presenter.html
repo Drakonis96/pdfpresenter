@@ -93,6 +93,11 @@
                     <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
                   </svg>
                 </button>
+                <div class="video-progress-container" id="video-progress-container">
+                  <span class="video-time" id="video-time-current">0:00</span>
+                  <input type="range" class="video-seek-slider" id="video-seek-slider" min="0" max="1000" value="0" step="1">
+                  <span class="video-time" id="video-time-duration">0:00</span>
+                </div>
               </div>
             </div>
 
@@ -237,6 +242,10 @@
     let lastDrawY = 0;
     let videoPlaying = false;
     let currentVideoId = null;
+    let videoDuration = 0;
+    let videoCurrentTime = 0;
+    let videoSeeking = false;
+    let videoTimeInterval = null;
     const ZOOM_FACTOR = 2.5;
     let notesFontSize = 15;
     let renderTasks = {}; // Track in-flight PDF.js render tasks per canvas
@@ -273,6 +282,7 @@
       setupMouseTools();
       setupScrollWheel();
       setupVideoPlayButton();
+      setupVideoSeekSlider();
       setupResizeDivider();
       setupHorizontalDivider();
       setupNoteFontControls();
@@ -396,6 +406,9 @@
       const overlay = document.getElementById('video-overlay');
       const iframe = document.getElementById('video-iframe');
 
+      // Clean up previous video tracking
+      stopVideoTimeTracking();
+
       if (presentationData.videos && presentationData.videos[slideNum]) {
         const v = presentationData.videos[slideNum];
         const videoId = extractYouTubeId(v.url);
@@ -410,7 +423,11 @@
           overlay.style.height = v.h + '%';
           overlay.classList.remove('hidden');
           videoPlaying = false;
+          videoDuration = 0;
+          videoCurrentTime = 0;
           updateVideoPlayButton();
+          resetVideoSlider();
+          setupYouTubeListener(iframe);
           // Also send to audience
           window.api.sendPresenterControl({ type: 'video-show', data: { slideNum, videoId, x: v.x, y: v.y, w: v.w, h: v.h } });
           return;
@@ -419,6 +436,7 @@
       currentVideoId = null;
       overlay.classList.add('hidden');
       iframe.src = '';
+      resetVideoSlider();
     }
 
     function toggleVideoPlaybackLocal() {
@@ -453,6 +471,111 @@
       if (!url) return null;
       const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube(?:-nocookie)?\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
       return match ? match[1] : null;
+    }
+
+    // ===== Video Seek Sync =====
+    function formatVideoTime(seconds) {
+      if (!seconds || isNaN(seconds)) return '0:00';
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    function resetVideoSlider() {
+      const slider = document.getElementById('video-seek-slider');
+      const timeCur = document.getElementById('video-time-current');
+      const timeDur = document.getElementById('video-time-duration');
+      if (slider) slider.value = 0;
+      if (timeCur) timeCur.textContent = '0:00';
+      if (timeDur) timeDur.textContent = '0:00';
+    }
+
+    function updateVideoSliderPosition() {
+      if (videoSeeking || !videoDuration) return;
+      const slider = document.getElementById('video-seek-slider');
+      const timeCur = document.getElementById('video-time-current');
+      if (slider) slider.value = (videoCurrentTime / videoDuration) * 1000;
+      if (timeCur) timeCur.textContent = formatVideoTime(videoCurrentTime);
+    }
+
+    function setupYouTubeListener(iframe) {
+      // When iframe loads, send listening message to get infoDelivery events
+      iframe.addEventListener('load', function onLoad() {
+        iframe.removeEventListener('load', onLoad);
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify({
+            event: 'listening',
+            id: 1,
+            channel: 'widget'
+          }), '*');
+        } catch (e) {}
+      });
+    }
+
+    // Global message listener for YouTube iframe postMessage API
+    window.addEventListener('message', (event) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data.event === 'infoDelivery' && data.info) {
+          if (typeof data.info.duration === 'number' && data.info.duration > 0) {
+            videoDuration = data.info.duration;
+            const timeDur = document.getElementById('video-time-duration');
+            if (timeDur) timeDur.textContent = formatVideoTime(videoDuration);
+          }
+          if (typeof data.info.currentTime === 'number') {
+            videoCurrentTime = data.info.currentTime;
+            updateVideoSliderPosition();
+          }
+        }
+      } catch (e) {}
+    });
+
+    function seekVideoLocal(time) {
+      const iframe = document.getElementById('video-iframe');
+      if (!iframe || !iframe.contentWindow) return;
+      try {
+        iframe.contentWindow.postMessage(JSON.stringify({
+          event: 'command',
+          func: 'seekTo',
+          args: [time, true]
+        }), '*');
+      } catch (e) {}
+      videoCurrentTime = time;
+    }
+
+    function seekVideoAndSync(time) {
+      seekVideoLocal(time);
+      // Forward seek to audience window
+      window.api.sendPresenterControl({ type: 'video-seek', time });
+    }
+
+    function stopVideoTimeTracking() {
+      if (videoTimeInterval) {
+        clearInterval(videoTimeInterval);
+        videoTimeInterval = null;
+      }
+    }
+
+    function setupVideoSeekSlider() {
+      const slider = document.getElementById('video-seek-slider');
+      if (!slider) return;
+
+      slider.addEventListener('input', () => {
+        videoSeeking = true;
+        if (videoDuration) {
+          const time = (parseFloat(slider.value) / 1000) * videoDuration;
+          const timeCur = document.getElementById('video-time-current');
+          if (timeCur) timeCur.textContent = formatVideoTime(time);
+        }
+      });
+
+      slider.addEventListener('change', () => {
+        if (videoDuration) {
+          const time = (parseFloat(slider.value) / 1000) * videoDuration;
+          seekVideoAndSync(time);
+        }
+        videoSeeking = false;
+      });
     }
 
     function escapeHtml(text) {
@@ -1038,6 +1161,7 @@
           case 'tool-data': handleToolDataFromRemote(action.data); break;
           case 'tool-size': handleToolSizeFromRemote(action.data); break;
           case 'video-toggle': toggleVideoPlaybackLocal(); break;
+          case 'video-seek': if (typeof action.time === 'number') seekVideoLocal(action.time); break;
           case 'black-screen':
             blackScreenEnabled = !!action.enabled;
             updateBlackScreenButton();

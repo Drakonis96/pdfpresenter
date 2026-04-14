@@ -88,6 +88,57 @@ body.show-cursor {
   transform: scale(1.1);
 }
 
+.video-progress-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.7));
+  pointer-events: auto;
+}
+
+.video-time {
+  color: white;
+  font-size: 12px;
+  font-family: monospace;
+  min-width: 36px;
+  text-align: center;
+  user-select: none;
+}
+
+.video-seek-slider {
+  flex: 1;
+  height: 5px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255,255,255,0.3);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.video-seek-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  cursor: pointer;
+}
+
+.video-seek-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  border: none;
+  cursor: pointer;
+}
+
 .tool-overlay {
   position: absolute;
   inset: 0;

@@ -24,6 +24,11 @@
               <rect x="14" y="4" width="4" height="16"/>
             </svg>
           </button>
+          <div class="video-progress-container" id="video-progress-container">
+            <span class="video-time" id="video-time-current">0:00</span>
+            <input type="range" class="video-seek-slider" id="video-seek-slider" min="0" max="1000" value="0" step="1">
+            <span class="video-time" id="video-time-duration">0:00</span>
+          </div>
         </div>
       </div>
 
@@ -171,6 +176,9 @@
     let sizeIndicatorTimeout = null;
     let videoPlaying = false;
     let currentVideoId = null;
+    let videoDuration = 0;
+    let videoCurrentTime = 0;
+    let videoSeeking = false;
     let currentRenderTask = null;
 
     async function initPresentation() {
@@ -204,6 +212,7 @@
 
       setupToolbar();
       setupVideoPlayButton();
+      setupVideoSeekSlider();
       setupMouseTools();
       setupKeyboardShortcuts();
       setupScrollWheel();
@@ -308,6 +317,7 @@
           case 'tool-data': handleToolData(action.data); break;
           case 'tool-size': handleToolSize(action.data); break;
           case 'video-toggle': toggleVideoPlayback(); break;
+          case 'video-seek': if (typeof action.time === 'number') seekVideoLocal(action.time); break;
           case 'video-show': showVideoOverlayFromRemote(action.data); break;
           case 'black-screen':
             document.getElementById('black-screen-overlay').classList.toggle('hidden', !action.enabled);
@@ -489,13 +499,18 @@
           overlay.style.height = v.h + '%';
           overlay.classList.remove('hidden');
           videoPlaying = false;
+          videoDuration = 0;
+          videoCurrentTime = 0;
           updateVideoPlayButton();
+          resetVideoSlider();
+          setupYouTubeListener(iframe);
           return;
         }
       }
       currentVideoId = null;
       overlay.classList.add('hidden');
       iframe.src = '';
+      resetVideoSlider();
     }
 
     function toggleVideoPlayback() {
@@ -526,7 +541,11 @@
       overlay.style.height = data.h + '%';
       overlay.classList.remove('hidden');
       videoPlaying = false;
+      videoDuration = 0;
+      videoCurrentTime = 0;
       updateVideoPlayButton();
+      resetVideoSlider();
+      setupYouTubeListener(iframe);
     }
 
     function updateVideoPlayButton() {
@@ -541,6 +560,102 @@
         // Sync to presenter and server
         window.api.sendPresentationControlToPresenter({ type: 'video-toggle' });
         window.api.sendStateUpdate({ videoPlaying });
+      });
+    }
+
+    // ===== Video Seek Sync =====
+    function formatVideoTime(seconds) {
+      if (!seconds || isNaN(seconds)) return '0:00';
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    function resetVideoSlider() {
+      const slider = document.getElementById('video-seek-slider');
+      const timeCur = document.getElementById('video-time-current');
+      const timeDur = document.getElementById('video-time-duration');
+      if (slider) slider.value = 0;
+      if (timeCur) timeCur.textContent = '0:00';
+      if (timeDur) timeDur.textContent = '0:00';
+    }
+
+    function updateVideoSliderPosition() {
+      if (videoSeeking || !videoDuration) return;
+      const slider = document.getElementById('video-seek-slider');
+      const timeCur = document.getElementById('video-time-current');
+      if (slider) slider.value = (videoCurrentTime / videoDuration) * 1000;
+      if (timeCur) timeCur.textContent = formatVideoTime(videoCurrentTime);
+    }
+
+    function setupYouTubeListener(iframe) {
+      iframe.addEventListener('load', function onLoad() {
+        iframe.removeEventListener('load', onLoad);
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify({
+            event: 'listening',
+            id: 1,
+            channel: 'widget'
+          }), '*');
+        } catch (e) {}
+      });
+    }
+
+    window.addEventListener('message', (event) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data.event === 'infoDelivery' && data.info) {
+          if (typeof data.info.duration === 'number' && data.info.duration > 0) {
+            videoDuration = data.info.duration;
+            const timeDur = document.getElementById('video-time-duration');
+            if (timeDur) timeDur.textContent = formatVideoTime(videoDuration);
+          }
+          if (typeof data.info.currentTime === 'number') {
+            videoCurrentTime = data.info.currentTime;
+            updateVideoSliderPosition();
+          }
+        }
+      } catch (e) {}
+    });
+
+    function seekVideoLocal(time) {
+      const iframe = document.getElementById('video-iframe');
+      if (!iframe || !iframe.contentWindow) return;
+      try {
+        iframe.contentWindow.postMessage(JSON.stringify({
+          event: 'command',
+          func: 'seekTo',
+          args: [time, true]
+        }), '*');
+      } catch (e) {}
+      videoCurrentTime = time;
+    }
+
+    function seekVideoAndSync(time) {
+      seekVideoLocal(time);
+      // Forward seek to presenter window
+      window.api.sendPresentationControlToPresenter({ type: 'video-seek', time });
+    }
+
+    function setupVideoSeekSlider() {
+      const slider = document.getElementById('video-seek-slider');
+      if (!slider) return;
+
+      slider.addEventListener('input', () => {
+        videoSeeking = true;
+        if (videoDuration) {
+          const time = (parseFloat(slider.value) / 1000) * videoDuration;
+          const timeCur = document.getElementById('video-time-current');
+          if (timeCur) timeCur.textContent = formatVideoTime(time);
+        }
+      });
+
+      slider.addEventListener('change', () => {
+        if (videoDuration) {
+          const time = (parseFloat(slider.value) / 1000) * videoDuration;
+          seekVideoAndSync(time);
+        }
+        videoSeeking = false;
       });
     }
 
