@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, screen, nativeImage, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
 const { startServer, stopServer, getServerInfo } = require('./server');
 const Store = require('electron-store');
 
@@ -263,6 +264,42 @@ ipcMain.on('presenter-control', (event, action) => {
   if (presentationWindow) {
     presentationWindow.webContents.send('presentation-control', action);
   }
+});
+
+// Cast / AirPlay: open macOS Screen Mirroring picker
+ipcMain.handle('show-cast-picker', async () => {
+  if (process.platform !== 'darwin') return false;
+  return new Promise((resolve) => {
+    // Try to open the Screen Mirroring panel from Control Center
+    const script = `
+      tell application "System Events"
+        tell process "ControlCenter"
+          set found to false
+          repeat with item_i in menu bar items of menu bar 1
+            try
+              set d to description of item_i
+              if d contains "Screen Mirroring" or d contains "Duplicar" or d contains "Pantalla" then
+                click item_i
+                set found to true
+                exit repeat
+              end if
+            end try
+          end repeat
+          if not found then error "not found"
+        end tell
+      end tell
+    `;
+    execFile('osascript', ['-e', script], (err) => {
+      if (err) {
+        // Fallback: open Displays settings
+        execFile('open', ['x-apple.systempreferences:com.apple.Displays-Settings.extension'], () => {
+          resolve(false);
+        });
+      } else {
+        resolve(true);
+      }
+    });
+  });
 });
 
 app.whenReady().then(async () => {

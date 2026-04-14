@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   stopPresentation: () => ipcRenderer.invoke('stop-presentation'),
   getServerInfo: () => ipcRenderer.invoke('get-server-info'),
   deletePresentation: (pdfId) => ipcRenderer.invoke('delete-presentation', pdfId),
+  showCastPicker: () => ipcRenderer.invoke('show-cast-picker'),
   
   // Presentation control
   sendPresentationControl: (action) => ipcRenderer.send('presentation-control', action),
