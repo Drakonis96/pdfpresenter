@@ -17,6 +17,14 @@ let localTimerSeconds = 0;
 let localTimerRunning = false;
 let localTimerInterval = null;
 
+// Slide zoom state
+let slideZoomScale = 1;
+let slideZoomOriginX = 50;
+let slideZoomOriginY = 50;
+let pinchStartDist = 0;
+let pinchStartScale = 1;
+let pinchZoomEnabled = false;
+
 // Load pdf.js
 function loadPdfJs() {
   return new Promise((resolve) => {
@@ -66,6 +74,14 @@ function connect() {
           updateVolumeUI(msg.data.volume);
         }
         break;
+      case 'slide-zoom':
+        if (msg.data) {
+          slideZoomScale = msg.data.scale;
+          slideZoomOriginX = msg.data.originX;
+          slideZoomOriginY = msg.data.originY;
+          applySlideZoomPreview();
+        }
+        break;
     }
   };
   
@@ -100,6 +116,14 @@ async function handleStateUpdate(newState) {
     if (newState.timerSeconds !== undefined) {
       handleTimerSync({ timerSeconds: newState.timerSeconds, timerRunning: newState.timerRunning });
     }
+
+    // Sync slide zoom from state
+    if (newState.slideZoom) {
+      slideZoomScale = newState.slideZoom.scale;
+      slideZoomOriginX = newState.slideZoom.originX;
+      slideZoomOriginY = newState.slideZoom.originY;
+      applySlideZoomPreview();
+    }
     
     // Load PDF if needed
     if (state.pdfId && state.pdfId !== prevPdfId) {
@@ -111,8 +135,15 @@ async function handleStateUpdate(newState) {
     updateBlackScreenButton();
     
     if (state.currentSlide !== prevSlide || state.pdfId !== prevPdfId) {
+      const notesContent = document.getElementById('notes-content');
+      if (notesContent) notesContent.scrollTop = 0;
       await renderPreview(state.currentSlide);
       clearPreviewDrawOverlay();
+      // Reset zoom on slide change
+      slideZoomScale = 1;
+      slideZoomOriginX = 50;
+      slideZoomOriginY = 50;
+      applySlideZoomPreview();
     }
   } else {
     showScreen('screen-waiting');
@@ -184,6 +215,7 @@ function updateMobileTimerDisplay() {
 function updateUI() {
   // Slide counter
   document.getElementById('slide-counter').textContent = `${state.currentSlide} / ${state.totalSlides}`;
+  updateFullscreenSlideCounter();
   
   // Notes
   const noteKey = state.currentSlide;
@@ -199,7 +231,6 @@ function updateUI() {
   } else {
     notesContent.innerHTML = '<p class="notes-empty">Sin notas para esta diapositiva</p>';
   }
-  notesContent.scrollTop = 0;
   notesContent.style.fontSize = fontSize + 'px';
   
   // Dots
@@ -267,6 +298,8 @@ function updateVideoToggleButton() {
   const isPlaying = !!state.videoPlaying;
   document.getElementById('mobile-video-play-icon').classList.toggle('hidden', isPlaying);
   document.getElementById('mobile-video-pause-icon').classList.toggle('hidden', !isPlaying);
+  // Sync fullscreen bar
+  updateFullscreenVideoToggle();
 }
 
 document.getElementById('btn-video-toggle').addEventListener('click', () => {
@@ -416,7 +449,7 @@ function renderToolOnPreview(data) {
 }
 
 // Tools
-document.querySelectorAll('.tool-btn').forEach(btn => {
+document.querySelectorAll('.tools-bar .tool-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const tool = btn.dataset.tool;
     
@@ -429,7 +462,7 @@ document.querySelectorAll('.tool-btn').forEach(btn => {
       send({ type: 'tool', tool: null });
     } else {
       // Activate
-      document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tools-bar .tool-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activeTool = tool;
       hidePreviewOverlays();
@@ -444,6 +477,8 @@ document.querySelectorAll('.tool-btn').forEach(btn => {
       
       send({ type: 'tool', tool });
     }
+    // Sync fullscreen toolbar
+    syncFullscreenToolState();
   });
 });
 
@@ -465,6 +500,19 @@ function getRelativePos(touch) {
 }
 
 touchArea.addEventListener('touchstart', (e) => {
+  // Detect pinch-to-zoom (2 fingers) — only if pinch zoom is enabled
+  if (e.touches.length === 2 && pinchZoomEnabled) {
+    e.preventDefault();
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    pinchStartDist = Math.hypot(dx, dy);
+    pinchStartScale = slideZoomScale;
+    if (slideZoomScale <= 1) {
+      slideZoomOriginX = 50;
+      slideZoomOriginY = 50;
+    }
+    return;
+  }
   if (!activeTool) return;
   e.preventDefault();
   const pos = getRelativePos(e.touches[0]);
@@ -482,6 +530,17 @@ touchArea.addEventListener('touchstart', (e) => {
 }, { passive: false });
 
 touchArea.addEventListener('touchmove', (e) => {
+  // Handle pinch-to-zoom (2 fingers) — only if pinch zoom is enabled
+  if (e.touches.length === 2 && pinchStartDist > 0 && pinchZoomEnabled) {
+    e.preventDefault();
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.hypot(dx, dy);
+    slideZoomScale = Math.max(1, Math.min(5, pinchStartScale * (dist / pinchStartDist)));
+    applySlideZoomPreview();
+    send({ type: 'slide-zoom', data: { scale: slideZoomScale, originX: slideZoomOriginX, originY: slideZoomOriginY } });
+    return;
+  }
   if (!activeTool) return;
   e.preventDefault();
   const pos = getRelativePos(e.touches[0]);
@@ -499,6 +558,9 @@ touchArea.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 touchArea.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) {
+    pinchStartDist = 0;
+  }
   if (!activeTool) return;
   if (activeTool === 'draw') {
     const data = { tool: 'draw', action: 'end' };
@@ -620,6 +682,7 @@ function escapeHtml(text) {
 function updateBlackScreenButton() {
   const btn = document.getElementById('btn-black-screen');
   if (btn) btn.classList.toggle('active', !!state.blackScreen);
+  updateFullscreenBlackScreen();
 }
 
 // Volume UI
@@ -654,6 +717,21 @@ slideArea.addEventListener('touchend', (e) => {
     }
   }
 }, { passive: true });
+
+// Apply slide zoom visually on mobile preview
+function applySlideZoomPreview() {
+  const preview = document.getElementById('slide-preview');
+  if (slideZoomScale <= 1) {
+    slideZoomScale = 1;
+    slideZoomOriginX = 50;
+    slideZoomOriginY = 50;
+    preview.style.transform = '';
+    preview.style.transformOrigin = '';
+  } else {
+    preview.style.transformOrigin = slideZoomOriginX + '% ' + slideZoomOriginY + '%';
+    preview.style.transform = 'scale(' + slideZoomScale + ')';
+  }
+}
 
 // Carousel
 let carouselRendered = false;
@@ -763,6 +841,137 @@ async function renderCarouselThumbnails(track) {
 document.getElementById('btn-carousel').addEventListener('click', openCarousel);
 document.getElementById('carousel-close').addEventListener('click', closeCarousel);
 document.getElementById('carousel-backdrop').addEventListener('click', closeCarousel);
+
+// ===== Pinch-Zoom Toggle (mobile only) =====
+
+function togglePinchZoom() {
+  pinchZoomEnabled = !pinchZoomEnabled;
+  document.getElementById('btn-pinch-zoom').classList.toggle('active', pinchZoomEnabled);
+  document.getElementById('fs-btn-pinch-zoom').classList.toggle('active', pinchZoomEnabled);
+}
+
+document.getElementById('btn-pinch-zoom').addEventListener('click', togglePinchZoom);
+document.getElementById('fs-btn-pinch-zoom').addEventListener('click', togglePinchZoom);
+
+// ===== Fullscreen / Landscape Mode =====
+
+function isFullscreenActive() {
+  const remote = document.getElementById('screen-remote');
+  if (remote.classList.contains('fullscreen-mode')) return true;
+  // Also check landscape auto-fullscreen
+  if (window.matchMedia('(orientation: landscape)').matches && !remote.classList.contains('no-auto-fullscreen')) return true;
+  return false;
+}
+
+function updateFullscreenSlideCounter() {
+  const el = document.getElementById('fs-slide-counter');
+  if (el) el.textContent = `${state.currentSlide} / ${state.totalSlides}`;
+}
+
+function syncFullscreenToolState() {
+  // Mirror active tool state to fullscreen-bar buttons
+  document.querySelectorAll('#fullscreen-bar .tool-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tool === activeTool);
+  });
+}
+
+function updateFullscreenVideoToggle() {
+  const hasVideo = state.videos && state.videos[state.currentSlide];
+  const fsBtn = document.getElementById('fs-btn-video-toggle');
+  if (fsBtn) {
+    if (hasVideo) {
+      fsBtn.classList.remove('hidden');
+    } else {
+      fsBtn.classList.add('hidden');
+    }
+    const isPlaying = !!state.videoPlaying;
+    const playIcon = document.getElementById('fs-video-play-icon');
+    const pauseIcon = document.getElementById('fs-video-pause-icon');
+    if (playIcon) playIcon.classList.toggle('hidden', isPlaying);
+    if (pauseIcon) pauseIcon.classList.toggle('hidden', !isPlaying);
+  }
+}
+
+function enterFullscreen() {
+  document.getElementById('screen-remote').classList.add('fullscreen-mode');
+  syncFullscreenToolState();
+  updateFullscreenSlideCounter();
+  updateFullscreenVideoToggle();
+  updateFullscreenBlackScreen();
+  // Re-render preview after layout change
+  setTimeout(() => {
+    if (state.currentSlide && pdfDoc) renderPreview(state.currentSlide);
+  }, 50);
+}
+
+function exitFullscreen() {
+  document.getElementById('screen-remote').classList.remove('fullscreen-mode');
+  // Re-render preview after layout change
+  setTimeout(() => {
+    if (state.currentSlide && pdfDoc) renderPreview(state.currentSlide);
+  }, 50);
+}
+
+function updateFullscreenBlackScreen() {
+  const btn = document.getElementById('fs-btn-black-screen');
+  if (btn) btn.classList.toggle('active', !!state.blackScreen);
+}
+
+// Fullscreen enter/exit buttons
+document.getElementById('btn-fullscreen-mode').addEventListener('click', enterFullscreen);
+document.getElementById('btn-exit-fullscreen').addEventListener('click', exitFullscreen);
+
+// Fullscreen-bar navigation buttons
+document.getElementById('fs-btn-prev').addEventListener('click', () => send({ type: 'prev' }));
+document.getElementById('fs-btn-next').addEventListener('click', () => send({ type: 'next' }));
+
+// Fullscreen-bar tool buttons (mirror main toolbar)
+document.querySelectorAll('#fullscreen-bar .tool-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tool = btn.dataset.tool;
+    if (activeTool === tool) {
+      activeTool = null;
+      hidePreviewOverlays();
+      send({ type: 'tool', tool: null });
+    } else {
+      activeTool = tool;
+      hidePreviewOverlays();
+      send({ type: 'tool', tool });
+    }
+    // Sync both toolbars
+    document.querySelectorAll('.tool-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.tool === activeTool);
+    });
+    // Show/hide clear draw button
+    const clearBtn = document.getElementById('btn-clear-draw');
+    if (activeTool === 'draw') {
+      clearBtn.classList.remove('hidden');
+    } else {
+      clearBtn.classList.add('hidden');
+    }
+  });
+});
+
+// Fullscreen-bar video toggle
+document.getElementById('fs-btn-video-toggle').addEventListener('click', () => {
+  send({ type: 'video-toggle' });
+});
+
+// Fullscreen-bar black screen
+document.getElementById('fs-btn-black-screen').addEventListener('click', () => {
+  send({ type: 'black-screen' });
+});
+
+// Re-render on orientation change (landscape triggers auto-fullscreen via CSS)
+window.matchMedia('(orientation: landscape)').addEventListener('change', () => {
+  syncFullscreenToolState();
+  updateFullscreenSlideCounter();
+  updateFullscreenVideoToggle();
+  updateFullscreenBlackScreen();
+  setTimeout(() => {
+    if (state.currentSlide && pdfDoc) renderPreview(state.currentSlide);
+  }, 100);
+});
 
 // Init
 async function init() {

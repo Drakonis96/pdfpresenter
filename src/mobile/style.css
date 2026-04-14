@@ -185,6 +185,7 @@ html, body {
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  transition: transform 0.15s ease-out;
 }
 
 .slide-preview #preview-canvas {
@@ -674,4 +675,144 @@ html, body {
 .carousel-item.active .carousel-label {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* ===== Fullscreen / Landscape Mode ===== */
+
+/* Fullscreen mode layout (toggled via button or landscape orientation) */
+#screen-remote.fullscreen-mode .top-bar,
+#screen-remote.fullscreen-mode .resize-handle,
+#screen-remote.fullscreen-mode .notes-section,
+#screen-remote.fullscreen-mode .slide-dots {
+  display: none !important;
+}
+
+#screen-remote.fullscreen-mode .slide-area {
+  flex: 1;
+  padding: 8px;
+}
+
+#screen-remote.fullscreen-mode .tools-bar {
+  padding: 6px 12px;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+#screen-remote.fullscreen-mode .nav-buttons {
+  padding: 0;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+/* Fullscreen bottom bar: merge nav + tools into a single row */
+#screen-remote.fullscreen-mode .fullscreen-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#screen-remote.fullscreen-mode .fullscreen-bar .nav-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  flex: 0 0 auto;
+}
+
+#screen-remote.fullscreen-mode .fullscreen-bar .nav-prev {
+  border: 1px solid var(--border);
+}
+
+#screen-remote.fullscreen-mode .fullscreen-bar .tool-btn {
+  width: 36px;
+  height: 36px;
+}
+
+#screen-remote.fullscreen-mode .fullscreen-bar .slide-counter-fs {
+  font-size: 13px;
+  color: var(--text-sec);
+  font-variant-numeric: tabular-nums;
+  margin: 0 4px;
+  white-space: nowrap;
+}
+
+#screen-remote.fullscreen-mode .fullscreen-bar .btn-exit-fullscreen {
+  margin-left: auto;
+}
+
+/* Hide original nav-buttons and tools-bar in fullscreen (replaced by fullscreen-bar) */
+#screen-remote.fullscreen-mode > .nav-buttons,
+#screen-remote.fullscreen-mode > .tools-bar {
+  display: none !important;
+}
+
+/* Fullscreen bar is hidden when NOT in fullscreen mode */
+.fullscreen-bar {
+  display: none !important;
+}
+
+#screen-remote.fullscreen-mode .fullscreen-bar {
+  display: flex !important;
+}
+
+/* Landscape auto-fullscreen */
+@media (orientation: landscape) {
+  #screen-remote:not(.no-auto-fullscreen) .top-bar,
+  #screen-remote:not(.no-auto-fullscreen) .resize-handle,
+  #screen-remote:not(.no-auto-fullscreen) .notes-section,
+  #screen-remote:not(.no-auto-fullscreen) .slide-dots {
+    display: none !important;
+  }
+
+  #screen-remote:not(.no-auto-fullscreen) .slide-area {
+    flex: 1;
+    padding: 8px;
+  }
+
+  #screen-remote:not(.no-auto-fullscreen) > .nav-buttons,
+  #screen-remote:not(.no-auto-fullscreen) > .tools-bar {
+    display: none !important;
+  }
+
+  #screen-remote:not(.no-auto-fullscreen) .fullscreen-bar {
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  #screen-remote:not(.no-auto-fullscreen) .fullscreen-bar .nav-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    flex: 0 0 auto;
+  }
+
+  #screen-remote:not(.no-auto-fullscreen) .fullscreen-bar .nav-prev {
+    border: 1px solid var(--border);
+  }
+
+  #screen-remote:not(.no-auto-fullscreen) .fullscreen-bar .tool-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  #screen-remote:not(.no-auto-fullscreen) .fullscreen-bar .slide-counter-fs {
+    font-size: 13px;
+    color: var(--text-sec);
+    font-variant-numeric: tabular-nums;
+    margin: 0 4px;
+    white-space: nowrap;
+  }
+
+  #screen-remote:not(.no-auto-fullscreen) .fullscreen-bar .btn-exit-fullscreen {
+    margin-left: auto;
+  }
 }

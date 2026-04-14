@@ -256,6 +256,13 @@
     let timerInterval = null;
     let blackScreenEnabled = false;
 
+    // Slide zoom state
+    let slideZoomScale = 1;
+    let slideZoomOriginX = 50;
+    let slideZoomOriginY = 50;
+    let pinchStartDist = 0;
+    let pinchStartScale = 1;
+
     async function initPresenter() {
       const params = window.api.getQueryParams();
       const pdfId = params.pdfId;
@@ -283,6 +290,7 @@
       setupScrollWheel();
       setupVideoPlayButton();
       setupVideoSeekSlider();
+      setupSlideZoom();
       setupResizeDivider();
       setupHorizontalDivider();
       setupNoteFontControls();
@@ -304,9 +312,15 @@
       startTimer();
     }
 
-    async function renderSlide(num) {
+    async function renderSlide(num, fromRemote = false) {
       currentSlide = num;
       document.getElementById('slide-counter').textContent = `${num} / ${totalSlides}`;
+
+      // Reset slide zoom on slide change
+      slideZoomScale = 1;
+      slideZoomOriginX = 50;
+      slideZoomOriginY = 50;
+      applySlideZoom();
 
       // Render current slide
       await renderSlideToCanvas(num, 'current-slide-canvas', 'current-slide-container');
@@ -339,11 +353,11 @@
         drawCanvas.getContext('2d').clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       }
 
-      // Send navigation to audience window
-      window.api.sendPresenterControl({ type: 'navigate', slide: num });
-
-      // Update server state so mobile remote stays in sync
-      window.api.sendStateUpdate({ currentSlide: num });
+      // Send navigation to audience window and update server state (only for local navigation)
+      if (!fromRemote) {
+        window.api.sendPresenterControl({ type: 'navigate', slide: num });
+        window.api.sendStateUpdate({ currentSlide: num });
+      }
     }
 
     async function renderSlideToCanvas(pageNum, canvasId, containerId) {
@@ -909,6 +923,7 @@
     function setupScrollWheel() {
       document.getElementById('current-slide-container').addEventListener('wheel', (e) => {
         if (!activeTool) return;
+        if (e.ctrlKey || e.metaKey) return; // Let slide zoom handle it
         e.preventDefault();
 
         const delta = e.deltaY > 0 ? -1 : 1;
@@ -1156,7 +1171,7 @@
     function handleRemoteControl(action) {
       if (typeof action === 'object') {
         switch (action.type) {
-          case 'navigate': if (action.slide !== currentSlide) renderSlide(action.slide); break;
+          case 'navigate': if (action.slide !== currentSlide) renderSlide(action.slide, true); break;
           case 'next': nextSlide(); break;
           case 'prev': prevSlide(); break;
           case 'tool': setTool(action.tool); break;
@@ -1194,6 +1209,14 @@
               timerSeconds = 0;
               updateTimerDisplay();
               window.api.sendTimerSync({ timerSeconds: 0, timerRunning });
+            }
+            break;
+          case 'slide-zoom':
+            if (action.data) {
+              slideZoomScale = action.data.scale;
+              slideZoomOriginX = action.data.originX;
+              slideZoomOriginY = action.data.originY;
+              applySlideZoom();
             }
             break;
         }
@@ -1298,6 +1321,91 @@
         renderSlide(currentSlide);
       }
     });
+
+    // ===== Slide Zoom (Ctrl/Cmd + Wheel & Pinch) =====
+    function applySlideZoom() {
+      const wrapper = document.getElementById('current-slide-wrapper');
+      if (slideZoomScale <= 1) {
+        slideZoomScale = 1;
+        slideZoomOriginX = 50;
+        slideZoomOriginY = 50;
+        wrapper.style.transform = '';
+        wrapper.style.transformOrigin = '';
+      } else {
+        wrapper.style.transformOrigin = slideZoomOriginX + '% ' + slideZoomOriginY + '%';
+        wrapper.style.transform = 'scale(' + slideZoomScale + ')';
+      }
+    }
+
+    function broadcastSlideZoom() {
+      const data = { scale: slideZoomScale, originX: slideZoomOriginX, originY: slideZoomOriginY };
+      // Send to audience window via IPC
+      window.api.sendPresenterControl({ type: 'slide-zoom', data });
+      // Send to server (mobile and other clients)
+      window.api.sendStateUpdate({ slideZoom: data });
+    }
+
+    function setupSlideZoom() {
+      const container = document.getElementById('current-slide-container');
+      const wrapper = document.getElementById('current-slide-wrapper');
+
+      // Ctrl/Cmd + Mouse Wheel
+      container.addEventListener('wheel', (e) => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+
+        const rect = wrapper.getBoundingClientRect();
+        if (slideZoomScale <= 1) {
+          slideZoomOriginX = ((e.clientX - rect.left) / rect.width) * 100;
+          slideZoomOriginY = ((e.clientY - rect.top) / rect.height) * 100;
+        }
+
+        const delta = e.deltaY > 0 ? -0.15 : 0.15;
+        slideZoomScale = Math.max(1, Math.min(5, slideZoomScale + delta));
+
+        applySlideZoom();
+        broadcastSlideZoom();
+      }, { passive: false });
+
+      // Pinch gesture (touch)
+      container.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          pinchStartDist = Math.hypot(dx, dy);
+          pinchStartScale = slideZoomScale;
+
+          if (slideZoomScale <= 1) {
+            const rect = wrapper.getBoundingClientRect();
+            const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            slideZoomOriginX = ((midX - rect.left) / rect.width) * 100;
+            slideZoomOriginY = ((midY - rect.top) / rect.height) * 100;
+          }
+        }
+      }, { passive: false });
+
+      container.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          if (pinchStartDist > 0) {
+            slideZoomScale = Math.max(1, Math.min(5, pinchStartScale * (dist / pinchStartDist)));
+            applySlideZoom();
+            broadcastSlideZoom();
+          }
+        }
+      }, { passive: false });
+
+      container.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) {
+          pinchStartDist = 0;
+        }
+      });
+    }
   </script>
 </body>
 </html>

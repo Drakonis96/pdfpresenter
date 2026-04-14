@@ -181,6 +181,13 @@
     let videoSeeking = false;
     let currentRenderTask = null;
 
+    // Slide zoom state
+    let slideZoomScale = 1;
+    let slideZoomOriginX = 50;
+    let slideZoomOriginY = 50;
+    let pinchStartDist = 0;
+    let pinchStartScale = 1;
+
     async function initPresentation() {
       const params = window.api.getQueryParams();
       const pdfId = params.pdfId;
@@ -216,6 +223,7 @@
       setupMouseTools();
       setupKeyboardShortcuts();
       setupScrollWheel();
+      setupSlideZoom();
 
       window.api.onPresentationControl(handleControl);
 
@@ -229,8 +237,14 @@
       await renderSlide(startSlide);
     }
 
-    async function renderSlide(num) {
+    async function renderSlide(num, fromRemote = false) {
       currentSlide = num;
+
+      // Reset slide zoom on slide change
+      slideZoomScale = 1;
+      slideZoomOriginX = 50;
+      slideZoomOriginY = 50;
+      applySlideZoom();
 
       // Cancel any in-progress render to prevent race conditions
       if (currentRenderTask) {
@@ -281,10 +295,12 @@
         dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       }
 
-      window.api.sendStateUpdate({
-        currentSlide: num,
-        totalSlides
-      });
+      if (!fromRemote) {
+        window.api.sendStateUpdate({
+          currentSlide: num,
+          totalSlides
+        });
+      }
     }
 
     function nextSlide() {
@@ -310,7 +326,7 @@
           case 'prev': prevSlide(); break;
           case 'navigate':
             if (action.slide !== currentSlide) {
-              renderSlide(action.slide);
+              renderSlide(action.slide, true);
             }
             break;
           case 'tool': setToolFromRemote(action.tool); break;
@@ -321,6 +337,14 @@
           case 'video-show': showVideoOverlayFromRemote(action.data); break;
           case 'black-screen':
             document.getElementById('black-screen-overlay').classList.toggle('hidden', !action.enabled);
+            break;
+          case 'slide-zoom':
+            if (action.data) {
+              slideZoomScale = action.data.scale;
+              slideZoomOriginX = action.data.originX;
+              slideZoomOriginY = action.data.originY;
+              applySlideZoom();
+            }
             break;
         }
       } else {
@@ -926,6 +950,7 @@
     function setupScrollWheel() {
       document.addEventListener('wheel', (e) => {
         if (!activeTool) return;
+        if (e.ctrlKey || e.metaKey) return; // Let slide zoom handle it
         e.preventDefault();
 
         const delta = e.deltaY > 0 ? -1 : 1;
@@ -959,6 +984,93 @@
           lens.style.height = (toolSize * 10) + 'px';
         }
       }, { passive: false });
+    }
+
+    // ===== Slide Zoom (Ctrl/Cmd + Wheel & Pinch) =====
+    function applySlideZoom() {
+      const wrapper = document.getElementById('slide-wrapper');
+      if (slideZoomScale <= 1) {
+        slideZoomScale = 1;
+        slideZoomOriginX = 50;
+        slideZoomOriginY = 50;
+        wrapper.style.transform = '';
+        wrapper.style.transformOrigin = '';
+      } else {
+        wrapper.style.transformOrigin = slideZoomOriginX + '% ' + slideZoomOriginY + '%';
+        wrapper.style.transform = 'scale(' + slideZoomScale + ')';
+      }
+    }
+
+    function broadcastSlideZoom() {
+      const data = { scale: slideZoomScale, originX: slideZoomOriginX, originY: slideZoomOriginY };
+      // Send to presenter window via IPC
+      window.api.sendPresentationControlToPresenter({ type: 'slide-zoom', data });
+      // Send to server (mobile and other clients)
+      window.api.sendStateUpdate({ slideZoom: data });
+    }
+
+    function setupSlideZoom() {
+      const container = document.getElementById('presentation-container');
+      const wrapper = document.getElementById('slide-wrapper');
+
+      // Ctrl/Cmd + Mouse Wheel
+      container.addEventListener('wheel', (e) => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+
+        const rect = wrapper.getBoundingClientRect();
+        // Calculate origin based on mouse position relative to the wrapper
+        if (slideZoomScale <= 1) {
+          slideZoomOriginX = ((e.clientX - rect.left) / rect.width) * 100;
+          slideZoomOriginY = ((e.clientY - rect.top) / rect.height) * 100;
+        }
+
+        const delta = e.deltaY > 0 ? -0.15 : 0.15;
+        slideZoomScale = Math.max(1, Math.min(5, slideZoomScale + delta));
+
+        applySlideZoom();
+        broadcastSlideZoom();
+      }, { passive: false });
+
+      // Pinch gesture (touch)
+      container.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          pinchStartDist = Math.hypot(dx, dy);
+          pinchStartScale = slideZoomScale;
+
+          // Set origin at midpoint of the two fingers
+          if (slideZoomScale <= 1) {
+            const rect = wrapper.getBoundingClientRect();
+            const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            slideZoomOriginX = ((midX - rect.left) / rect.width) * 100;
+            slideZoomOriginY = ((midY - rect.top) / rect.height) * 100;
+          }
+        }
+      }, { passive: false });
+
+      container.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          if (pinchStartDist > 0) {
+            slideZoomScale = Math.max(1, Math.min(5, pinchStartScale * (dist / pinchStartDist)));
+            applySlideZoom();
+            broadcastSlideZoom();
+          }
+        }
+      }, { passive: false });
+
+      container.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) {
+          pinchStartDist = 0;
+        }
+      });
     }
   </script>
 </body>

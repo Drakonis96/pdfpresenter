@@ -20,7 +20,8 @@ let currentState = {
   videoPlaying: false,
   timerSeconds: 0,
   timerRunning: false,
-  blackScreen: false
+  blackScreen: false,
+  slideZoom: { scale: 1, originX: 50, originY: 50 }
 };
 
 const clients = new Set();
@@ -110,6 +111,7 @@ function startServer(dataDirPath) {
           case 'navigate':
             currentState.currentSlide = msg.slide;
             currentState.videoPlaying = false;
+            currentState.slideZoom = { scale: 1, originX: 50, originY: 50 };
             broadcast({ type: 'state', data: currentState });
             // Also tell Electron presentation window
             notifyElectron('navigate', msg.slide);
@@ -119,8 +121,9 @@ function startServer(dataDirPath) {
             if (currentState.currentSlide < currentState.totalSlides) {
               currentState.currentSlide++;
               currentState.videoPlaying = false;
+              currentState.slideZoom = { scale: 1, originX: 50, originY: 50 };
               broadcast({ type: 'state', data: currentState });
-              notifyElectron('next');
+              notifyElectron('navigate', currentState.currentSlide);
             }
             break;
 
@@ -128,8 +131,9 @@ function startServer(dataDirPath) {
             if (currentState.currentSlide > 1) {
               currentState.currentSlide--;
               currentState.videoPlaying = false;
+              currentState.slideZoom = { scale: 1, originX: 50, originY: 50 };
               broadcast({ type: 'state', data: currentState });
-              notifyElectron('prev');
+              notifyElectron('navigate', currentState.currentSlide);
             }
             break;
 
@@ -194,6 +198,12 @@ function startServer(dataDirPath) {
           case 'state-update':
             Object.assign(currentState, msg.data);
             broadcast({ type: 'state', data: currentState }, ws);
+            break;
+
+          case 'slide-zoom':
+            currentState.slideZoom = msg.data;
+            broadcast({ type: 'slide-zoom', data: msg.data }, ws);
+            notifyElectron('slide-zoom', msg.data);
             break;
         }
       });

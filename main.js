@@ -374,6 +374,17 @@ app.whenReady().then(async () => {
       return;
     }
 
+    if (action === 'slide-zoom') {
+      const msg = { type: 'slide-zoom', data };
+      if (presentationWindow) {
+        presentationWindow.webContents.send('presentation-control', msg);
+      }
+      if (presenterWindow) {
+        presenterWindow.webContents.send('presentation-control', msg);
+      }
+      return;
+    }
+
     const msg = { type: action };
     if (action === 'navigate') msg.slide = data;
     else if (action === 'tool') msg.tool = data;
