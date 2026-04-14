@@ -389,6 +389,15 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 
+.notes-content p:not(.notes-empty) {
+  text-indent: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.notes-content p:not(.notes-empty):last-child {
+  margin-bottom: 0;
+}
+
 .notes-empty {
   color: var(--text-muted);
   font-style: italic;

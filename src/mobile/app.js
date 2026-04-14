@@ -148,7 +148,8 @@ function updateUI() {
   notesSlideLabel.textContent = `Slide ${state.currentSlide}`;
   
   if (note && note.trim()) {
-    notesContent.innerHTML = `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>`;
+    const paragraphs = note.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    notesContent.innerHTML = paragraphs.map(p => `<p>${escapeHtml(p).replace(/\n/g, ' ')}</p>`).join('');
   } else {
     notesContent.innerHTML = '<p class="notes-empty">Sin notas para esta diapositiva</p>';
   }
