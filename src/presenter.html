@@ -598,6 +598,7 @@
       document.getElementById('btn-next').addEventListener('click', nextSlide);
       document.getElementById('btn-end').addEventListener('click', () => {
         window.api.stopPresentation();
+        window.close();
       });
     }
 
@@ -896,6 +897,7 @@
                 setTool(null);
               } else {
                 window.api.stopPresentation();
+                window.close();
               }
               break;
           }

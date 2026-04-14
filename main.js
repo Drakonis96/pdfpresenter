@@ -217,8 +217,11 @@ ipcMain.handle('stop-presentation', () => {
   if (pWin && !pWin.isDestroyed()) {
     pWin.close();
   }
+  // Defer closing the caller window so the IPC response is sent first
   if (prWin && !prWin.isDestroyed()) {
-    prWin.close();
+    setImmediate(() => {
+      if (!prWin.isDestroyed()) prWin.close();
+    });
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('presentation-ended');
