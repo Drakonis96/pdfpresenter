@@ -912,11 +912,12 @@ function startDetailTitleRename() {
   });
 }
 
-// Video overlay resize handles (proportional corner drag)
+// Video overlay resize handles (proportional corner drag) and drag to move
 function setupVideoResizeHandles() {
   const container = document.querySelector('.slide-preview-container');
   const overlay = document.getElementById('video-overlay-preview');
   let resizing = false;
+  let dragging = false;
   let startCorner = null;
   let startMouseX, startMouseY;
   let startOvX, startOvY, startOvW, startOvH;
@@ -924,12 +925,9 @@ function setupVideoResizeHandles() {
 
   overlay.addEventListener('mousedown', (e) => {
     const corner = e.target.dataset.corner || e.target.dataset.edge;
-    if (!corner) return;
     e.preventDefault();
     e.stopPropagation();
 
-    resizing = true;
-    startCorner = corner;
     startMouseX = e.clientX;
     startMouseY = e.clientY;
     startOvX = parseFloat(document.getElementById('video-x').value);
@@ -938,19 +936,30 @@ function setupVideoResizeHandles() {
     startOvH = parseFloat(document.getElementById('video-h').value);
     aspectRatio = startOvW / startOvH;
 
-    document.addEventListener('mousemove', onResizeMove);
-    document.addEventListener('mouseup', onResizeEnd);
+    if (corner) {
+      resizing = true;
+      startCorner = corner;
+    } else {
+      dragging = true;
+    }
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
   });
 
-  function onResizeMove(e) {
-    if (!resizing) return;
+  function onMove(e) {
+    if (!resizing && !dragging) return;
     const rect = container.getBoundingClientRect();
     const dx = ((e.clientX - startMouseX) / rect.width) * 100;
     const dy = ((e.clientY - startMouseY) / rect.height) * 100;
 
     let newX = startOvX, newY = startOvY, newW = startOvW, newH = startOvH;
 
-    switch (startCorner) {
+    if (dragging) {
+      newX = Math.max(0, Math.min(100 - startOvW, startOvX + dx));
+      newY = Math.max(0, Math.min(100 - startOvH, startOvY + dy));
+    } else {
+      switch (startCorner) {
       case 'br':
         newW = Math.max(10, startOvW + dx);
         newH = newW / aspectRatio;
@@ -978,6 +987,7 @@ function setupVideoResizeHandles() {
       case 'bc':
         newH = Math.max(10, startOvH + dy);
         break;
+      }
     }
 
     // Clamp values
@@ -993,10 +1003,11 @@ function setupVideoResizeHandles() {
     updateVideoOverlayPreview();
   }
 
-  function onResizeEnd() {
+  function onEnd() {
     resizing = false;
-    document.removeEventListener('mousemove', onResizeMove);
-    document.removeEventListener('mouseup', onResizeEnd);
+    dragging = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onEnd);
   }
 }
 
