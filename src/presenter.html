@@ -831,8 +831,9 @@
 
     function applyNotesFontSize() {
       document.getElementById('notes-font-label').textContent = notesFontSize + 'px';
-      const textEl = document.querySelector('.notes-text');
-      if (textEl) textEl.style.fontSize = notesFontSize + 'px';
+      document.querySelectorAll('.notes-text').forEach(el => {
+        el.style.fontSize = notesFontSize + 'px';
+      });
     }
 
     // ===== Horizontal Resize Divider =====
