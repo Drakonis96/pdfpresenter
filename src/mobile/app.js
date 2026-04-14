@@ -125,10 +125,14 @@ async function renderPreview(slideNum) {
   const scale = Math.min(scaleW, scaleH, 2);
   const viewport = page.getViewport({ scale });
   
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(viewport.width * dpr);
+  canvas.height = Math.round(viewport.height * dpr);
+  canvas.style.width = viewport.width + 'px';
+  canvas.style.height = viewport.height + 'px';
   
   const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   await page.render({ canvasContext: ctx, viewport }).promise;
 }
 
