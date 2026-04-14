@@ -189,6 +189,12 @@ function renderPdfList() {
         <div class="pdf-item-meta">${p.totalPages ? p.totalPages + ' diapositivas' : 'Sin cargar'}${Object.keys(p.notes || {}).length ? ' • Notas' : ''}${Object.keys(p.videos || {}).length ? ' • Vídeos' : ''}</div>
       </div>
       <div class="pdf-item-actions">
+        <button class="pdf-item-action" data-rename="${p.id}" title="${t('sidebar.rename')}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
         <button class="pdf-item-action" data-move="${p.id}" title="Mover a carpeta">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -206,6 +212,11 @@ function renderPdfList() {
   // Click handlers
   list.querySelectorAll('.pdf-item').forEach(item => {
     item.addEventListener('click', (e) => {
+      if (e.target.closest('[data-rename]')) {
+        const id = e.target.closest('[data-rename]').dataset.rename;
+        startInlineRename(id, item);
+        return;
+      }
       if (e.target.closest('[data-delete]')) {
         const id = e.target.closest('[data-delete]').dataset.delete;
         openDeleteConfirm(id);
@@ -234,6 +245,7 @@ async function selectPdf(id) {
   document.getElementById('welcome-panel').classList.add('hidden');
   document.getElementById('detail-panel').classList.remove('hidden');
   document.getElementById('detail-title').textContent = selectedPdf.name;
+  document.getElementById('detail-title').title = t('sidebar.rename');
 
   // Load PDF for thumbnails
   const base64 = await window.api.getPdfData(id);
@@ -711,6 +723,9 @@ function setupEventListeners() {
     if (selectedPdf) openDeleteConfirm(selectedPdf.id);
   });
 
+  // Rename from detail title
+  document.getElementById('detail-title').addEventListener('click', startDetailTitleRename);
+
   // Video modal
   document.getElementById('btn-close-video-modal').addEventListener('click', () => {
     document.getElementById('video-modal').classList.add('hidden');
@@ -809,6 +824,75 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Inline rename in sidebar
+function startInlineRename(id, itemEl) {
+  const p = presentations.find(pr => pr.id === id);
+  if (!p) return;
+  const nameEl = itemEl.querySelector('.pdf-item-name');
+  if (!nameEl || nameEl.querySelector('input')) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'pdf-item-rename-input';
+  input.value = p.name;
+  nameEl.textContent = '';
+  nameEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  const commit = async () => {
+    const newName = input.value.trim();
+    if (newName && newName !== p.name) {
+      p.name = newName;
+      if (selectedPdf && selectedPdf.id === id) {
+        document.getElementById('detail-title').textContent = newName;
+      }
+      await saveMeta();
+    }
+    renderPdfList();
+  };
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = p.name; input.blur(); }
+  });
+  input.addEventListener('click', (e) => e.stopPropagation());
+}
+
+// Rename from detail title
+function startDetailTitleRename() {
+  if (!selectedPdf) return;
+  const titleEl = document.getElementById('detail-title');
+  if (titleEl.querySelector('input')) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'detail-title-rename-input';
+  input.value = selectedPdf.name;
+  titleEl.textContent = '';
+  titleEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  const commit = async () => {
+    const newName = input.value.trim();
+    if (newName && newName !== selectedPdf.name) {
+      selectedPdf.name = newName;
+      await saveMeta();
+      renderPdfList();
+    }
+    titleEl.textContent = selectedPdf.name;
+    titleEl.title = t('sidebar.rename');
+  };
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = selectedPdf.name; input.blur(); }
+  });
 }
 
 // Video overlay resize handles (proportional corner drag)

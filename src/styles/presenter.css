@@ -427,12 +427,15 @@ body.resizing * {
 /* Next slide */
 .next-slide-area {
   border-bottom: none;
+  display: flex;
+  flex-direction: column;
 }
 
 .next-slide-container {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  flex: 1;
+  min-height: 0;
   background: #000;
   overflow: hidden;
   display: flex;
