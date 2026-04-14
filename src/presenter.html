@@ -359,7 +359,7 @@
         if (videoId) {
           currentVideoId = videoId;
           const origin = encodeURIComponent(window.location.origin);
-          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&mute=1&origin=${origin}`;
+          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&enablejsapi=1&mute=1&origin=${origin}`;
           overlay.style.left = v.x + '%';
           overlay.style.top = v.y + '%';
           overlay.style.width = v.w + '%';
@@ -383,12 +383,10 @@
       if (!currentVideoId || overlay.classList.contains('hidden')) return;
 
       if (videoPlaying) {
-        const origin = encodeURIComponent(window.location.origin);
-        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&mute=1&origin=${origin}`;
+        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
         videoPlaying = false;
       } else {
-        const origin = encodeURIComponent(window.location.origin);
-        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&autoplay=1&mute=1&origin=${origin}`;
+        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
         videoPlaying = true;
       }
       updateVideoPlayButton();
