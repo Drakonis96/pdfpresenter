@@ -273,7 +273,7 @@
         const videoId = extractYouTubeId(v.url);
         if (videoId) {
           currentVideoId = videoId;
-          iframe.src = `https://www.youtube.com/embed/${videoId}?rel=0`;
+          iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0`;
           overlay.style.left = v.x + '%';
           overlay.style.top = v.y + '%';
           overlay.style.width = v.w + '%';
@@ -295,10 +295,10 @@
       if (!currentVideoId || overlay.classList.contains('hidden')) return;
 
       if (videoPlaying) {
-        iframe.src = `https://www.youtube.com/embed/${currentVideoId}?rel=0`;
+        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0`;
         videoPlaying = false;
       } else {
-        iframe.src = `https://www.youtube.com/embed/${currentVideoId}?rel=0&autoplay=1`;
+        iframe.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?rel=0&autoplay=1`;
         videoPlaying = true;
       }
       updateVideoPlayButton();
@@ -312,7 +312,7 @@
 
     function extractYouTubeId(url) {
       if (!url) return null;
-      const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+      const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube(?:-nocookie)?\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
       return match ? match[1] : null;
     }
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, nativeImage, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { startServer, stopServer, getServerInfo } = require('./server');
@@ -263,6 +263,21 @@ ipcMain.on('presenter-control', (event, action) => {
 
 app.whenReady().then(async () => {
   ensureDataDir();
+
+  // Override User-Agent for YouTube requests to look like standard Chrome
+  // Electron's UA includes "Electron/" and app name which YouTube flags as a bot
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*', '*://*.googlevideo.com/*', '*://*.google.com/*'] },
+    (details, callback) => {
+      const chromeUA = details.requestHeaders['User-Agent']
+        .replace(/Electron\/[\S]+\s?/g, '')
+        .replace(/pdfpresenter\/[\S]+\s?/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      details.requestHeaders['User-Agent'] = chromeUA;
+      callback({ requestHeaders: details.requestHeaders });
+    }
+  );
 
   // Set dock icon on macOS
   if (process.platform === 'darwin' && app.dock) {
