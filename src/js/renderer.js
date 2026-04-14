@@ -306,12 +306,12 @@ function updateDetailInfo() {
 // Import PPTX notes
 async function importNotes() {
   if (!selectedPdf) return;
-  const notes = await window.api.importPptxNotes(selectedPdf.id);
-  if (!notes) return;
+  const result = await window.api.importPptxNotes(selectedPdf.id);
+  if (!result) return;
 
-  const pptxSlideCount = Object.keys(notes).length;
-  if (pptxSlideCount !== selectedPdf.totalPages) {
-    alert(t('misc.pptxMismatch', { pptx: pptxSlideCount, pdf: selectedPdf.totalPages }));
+  const { notes, totalSlides } = result;
+  if (totalSlides !== selectedPdf.totalPages) {
+    alert(t('misc.pptxMismatch', { pptx: totalSlides, pdf: selectedPdf.totalPages }));
     return;
   }
 

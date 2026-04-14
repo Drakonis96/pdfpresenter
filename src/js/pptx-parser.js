@@ -78,7 +78,7 @@ async function extractNotes(pptxPath) {
     }
   }
   
-  return notes;
+  return { notes, totalSlides: slideFiles.length };
 }
 
 function normalizePath(p) {

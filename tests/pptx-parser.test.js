@@ -86,7 +86,8 @@ describe('PPTX Parser', () => {
     fs.writeFileSync(pptxPath, await zip.generateAsync({ type: 'nodebuffer' }));
 
     const result = await extractNotes(pptxPath);
-    expect(result).toHaveProperty('1', 'Hello from slide 1');
+    expect(result.notes).toHaveProperty('1', 'Hello from slide 1');
+    expect(result.totalSlides).toBe(1);
   });
 
   test('extracts notes from multiple slides', async () => {
@@ -99,10 +100,11 @@ describe('PPTX Parser', () => {
     fs.writeFileSync(pptxPath, await zip.generateAsync({ type: 'nodebuffer' }));
 
     const result = await extractNotes(pptxPath);
-    expect(Object.keys(result).length).toBe(3);
-    expect(result['1']).toBe('Note for slide 1');
-    expect(result['2']).toBe('Note for slide 2');
-    expect(result['3']).toBe('Note for slide 3');
+    expect(Object.keys(result.notes).length).toBe(3);
+    expect(result.notes['1']).toBe('Note for slide 1');
+    expect(result.notes['2']).toBe('Note for slide 2');
+    expect(result.notes['3']).toBe('Note for slide 3');
+    expect(result.totalSlides).toBe(3);
   });
 
   test('handles slides without notes', async () => {
@@ -111,8 +113,9 @@ describe('PPTX Parser', () => {
     fs.writeFileSync(pptxPath, await zip.generateAsync({ type: 'nodebuffer' }));
 
     const result = await extractNotes(pptxPath);
-    expect(result).not.toHaveProperty('1');
-    expect(result).toHaveProperty('2', 'Only slide 2 has notes');
+    expect(result.notes).not.toHaveProperty('1');
+    expect(result.notes).toHaveProperty('2', 'Only slide 2 has notes');
+    expect(result.totalSlides).toBe(2);
   });
 
   test('returns empty object for pptx with no notes', async () => {
@@ -121,6 +124,7 @@ describe('PPTX Parser', () => {
     fs.writeFileSync(pptxPath, await zip.generateAsync({ type: 'nodebuffer' }));
 
     const result = await extractNotes(pptxPath);
-    expect(Object.keys(result).length).toBe(0);
+    expect(Object.keys(result.notes).length).toBe(0);
+    expect(result.totalSlides).toBe(1);
   });
 });

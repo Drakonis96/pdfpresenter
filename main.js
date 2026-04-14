@@ -182,8 +182,8 @@ ipcMain.handle('import-pptx-notes', async (event, pdfId) => {
 
   const pptxPath = result.filePaths[0];
   const { extractNotes } = require('./src/js/pptx-parser');
-  const notes = await extractNotes(pptxPath);
-  return notes;
+  const result2 = await extractNotes(pptxPath);
+  return result2;
 });
 
 ipcMain.handle('get-pdf-data', (event, pdfId) => {
