@@ -223,6 +223,7 @@
     let lastDrawX = 0;
     let lastDrawY = 0;
     let videoPlaying = false;
+    let currentVideoId = null;
     const ZOOM_FACTOR = 2.5;
     let notesFontSize = 15;
 
@@ -354,7 +355,8 @@
         const v = presentationData.videos[slideNum];
         const videoId = extractYouTubeId(v.url);
         if (videoId) {
-          iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=0&rel=0&enablejsapi=1`;
+          currentVideoId = videoId;
+          iframe.src = `https://www.youtube.com/embed/${videoId}?rel=0`;
           overlay.style.left = v.x + '%';
           overlay.style.top = v.y + '%';
           overlay.style.width = v.w + '%';
@@ -367,6 +369,7 @@
           return;
         }
       }
+      currentVideoId = null;
       overlay.classList.add('hidden');
       iframe.src = '';
     }
@@ -374,13 +377,13 @@
     function toggleVideoPlayback() {
       const iframe = document.getElementById('video-iframe');
       const overlay = document.getElementById('video-overlay');
-      if (!iframe || !iframe.src || overlay.classList.contains('hidden')) return;
+      if (!currentVideoId || overlay.classList.contains('hidden')) return;
 
       if (videoPlaying) {
-        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+        iframe.src = `https://www.youtube.com/embed/${currentVideoId}?rel=0`;
         videoPlaying = false;
       } else {
-        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+        iframe.src = `https://www.youtube.com/embed/${currentVideoId}?rel=0&autoplay=1`;
         videoPlaying = true;
       }
       updateVideoPlayButton();

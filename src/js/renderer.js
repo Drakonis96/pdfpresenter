@@ -378,6 +378,12 @@ async function openVideoEditor(slideNum) {
   document.getElementById('video-modal').classList.remove('hidden');
 }
 
+function extractYouTubeIdLocal(url) {
+  if (!url) return null;
+  const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
 function updateVideoOverlayPreview() {
   const overlay = document.getElementById('video-overlay-preview');
   const x = parseFloat(document.getElementById('video-x').value);
@@ -390,6 +396,17 @@ function updateVideoOverlayPreview() {
   overlay.style.top = y + '%';
   overlay.style.width = w + '%';
   overlay.style.height = h + '%';
+
+  // Show YouTube thumbnail preview
+  const url = document.getElementById('video-url').value.trim();
+  const videoId = extractYouTubeIdLocal(url);
+  const thumb = document.getElementById('video-thumb-preview');
+  if (videoId && thumb) {
+    thumb.src = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+    thumb.style.display = 'block';
+  } else if (thumb) {
+    thumb.style.display = 'none';
+  }
 }
 
 async function saveVideo() {
@@ -906,7 +923,7 @@ function setupVideoResizeHandles() {
   let aspectRatio;
 
   overlay.addEventListener('mousedown', (e) => {
-    const corner = e.target.dataset.corner;
+    const corner = e.target.dataset.corner || e.target.dataset.edge;
     if (!corner) return;
     e.preventDefault();
     e.stopPropagation();
@@ -953,6 +970,13 @@ function setupVideoResizeHandles() {
         newH = newW / aspectRatio;
         newX = startOvX + startOvW - newW;
         newY = startOvY + startOvH - newH;
+        break;
+      case 'tc':
+        newH = Math.max(10, startOvH - dy);
+        newY = startOvY + startOvH - newH;
+        break;
+      case 'bc':
+        newH = Math.max(10, startOvH + dy);
         break;
     }
 

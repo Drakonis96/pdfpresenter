@@ -161,6 +161,7 @@
     let toolbarTimeout = null;
     let sizeIndicatorTimeout = null;
     let videoPlaying = false;
+    let currentVideoId = null;
     let currentRenderTask = null;
 
     async function initPresentation() {
@@ -228,10 +229,13 @@
 
       // Use min scale to fit the slide maintaining aspect ratio
       const scale = Math.min(scaleX, scaleY);
-      const viewport = page.getViewport({ scale });
+      const dpr = window.devicePixelRatio || 1;
+      const viewport = page.getViewport({ scale: scale * dpr });
 
       canvas.width = viewport.width;
       canvas.height = viewport.height;
+      canvas.style.width = (viewport.width / dpr) + 'px';
+      canvas.style.height = (viewport.height / dpr) + 'px';
 
       const ctx = canvas.getContext('2d');
       const renderTask = page.render({ canvasContext: ctx, viewport });
@@ -268,7 +272,8 @@
         const v = presentationData.videos[slideNum];
         const videoId = extractYouTubeId(v.url);
         if (videoId) {
-          iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=0&rel=0&enablejsapi=1`;
+          currentVideoId = videoId;
+          iframe.src = `https://www.youtube.com/embed/${videoId}?rel=0`;
           overlay.style.left = v.x + '%';
           overlay.style.top = v.y + '%';
           overlay.style.width = v.w + '%';
@@ -279,6 +284,7 @@
           return;
         }
       }
+      currentVideoId = null;
       overlay.classList.add('hidden');
       iframe.src = '';
     }
@@ -286,13 +292,13 @@
     function toggleVideoPlayback() {
       const iframe = document.getElementById('video-iframe');
       const overlay = document.getElementById('video-overlay');
-      if (!iframe || !iframe.src || overlay.classList.contains('hidden')) return;
+      if (!currentVideoId || overlay.classList.contains('hidden')) return;
 
       if (videoPlaying) {
-        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+        iframe.src = `https://www.youtube.com/embed/${currentVideoId}?rel=0`;
         videoPlaying = false;
       } else {
-        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+        iframe.src = `https://www.youtube.com/embed/${currentVideoId}?rel=0&autoplay=1`;
         videoPlaying = true;
       }
       updateVideoPlayButton();

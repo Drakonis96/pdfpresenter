@@ -205,11 +205,18 @@ ipcMain.handle('start-presenter-mode', (event, pdfId) => {
 });
 
 ipcMain.handle('stop-presentation', () => {
-  if (presentationWindow) {
-    presentationWindow.close();
+  const pWin = presentationWindow;
+  const prWin = presenterWindow;
+  presentationWindow = null;
+  presenterWindow = null;
+  if (pWin && !pWin.isDestroyed()) {
+    pWin.close();
   }
-  if (presenterWindow) {
-    presenterWindow.close();
+  if (prWin && !prWin.isDestroyed()) {
+    prWin.close();
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('presentation-ended');
   }
   return true;
 });

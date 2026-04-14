@@ -1121,3 +1121,26 @@ body {
 .resize-tr { top: -7px; right: -7px; cursor: nesw-resize; }
 .resize-bl { bottom: -7px; left: -7px; cursor: nesw-resize; }
 .resize-br { bottom: -7px; right: -7px; cursor: nwse-resize; }
+
+.resize-handle-edge {
+  position: absolute;
+  background: var(--accent);
+  border: 2px solid white;
+  border-radius: 3px;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.resize-tc { top: -5px; left: 50%; transform: translateX(-50%); width: 24px; height: 10px; cursor: ns-resize; }
+.resize-bc { bottom: -5px; left: 50%; transform: translateX(-50%); width: 24px; height: 10px; cursor: ns-resize; }
+
+.video-thumb-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  opacity: 0.7;
+  border-radius: 2px;
+}
