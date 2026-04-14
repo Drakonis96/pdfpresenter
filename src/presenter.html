@@ -307,6 +307,8 @@
         const slideCanvas = document.getElementById('current-slide-canvas');
         drawCanvas.width = slideCanvas.width;
         drawCanvas.height = slideCanvas.height;
+        drawCanvas.style.width = slideCanvas.style.width;
+        drawCanvas.style.height = slideCanvas.style.height;
         drawCanvas.getContext('2d').clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       }
 
@@ -325,11 +327,14 @@
       const scaleX = containerW / defaultViewport.width;
       const scaleY = containerH / defaultViewport.height;
       const scale = Math.min(scaleX, scaleY);
-      const viewport = page.getViewport({ scale });
+      const dpr = window.devicePixelRatio || 1;
+      const viewport = page.getViewport({ scale: scale * dpr });
 
-      // Size canvas to exactly fit the slide (no black bars)
+      // Size canvas buffer at high resolution, display at CSS size
       canvas.width = viewport.width;
       canvas.height = viewport.height;
+      canvas.style.width = (viewport.width / dpr) + 'px';
+      canvas.style.height = (viewport.height / dpr) + 'px';
 
       const ctx = canvas.getContext('2d');
       await page.render({ canvasContext: ctx, viewport }).promise;
@@ -817,10 +822,13 @@
         // Render thumbnail
         const page = await pdfDoc.getPage(i);
         const defaultVp = page.getViewport({ scale: 1 });
-        const scale = 120 / defaultVp.width;
-        const vp = page.getViewport({ scale });
+        const thumbDpr = window.devicePixelRatio || 1;
+        const thumbScale = 120 / defaultVp.width;
+        const vp = page.getViewport({ scale: thumbScale * thumbDpr });
         canvas.width = vp.width;
         canvas.height = vp.height;
+        canvas.style.width = (vp.width / thumbDpr) + 'px';
+        canvas.style.height = (vp.height / thumbDpr) + 'px';
         await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
       }
     }
