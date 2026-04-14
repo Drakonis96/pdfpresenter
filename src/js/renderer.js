@@ -10,6 +10,7 @@ let sortMode = 'recent-added';
 let notesViewerSlide = 1;
 let pendingDeleteId = null;
 let pendingMoveId = null;
+let renderGeneration = 0;
 
 // Load pdf.js from CDN (used in renderer for thumbnails)
 function loadPdfJs() {
@@ -251,11 +252,19 @@ async function selectPdf(id) {
 }
 
 async function renderThumbnails() {
+  const generation = ++renderGeneration;
   const grid = document.getElementById('slides-grid');
   grid.innerHTML = '';
 
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    const page = await pdfDoc.getPage(i);
+  const currentPdf = selectedPdf;
+  const currentDoc = pdfDoc;
+
+  for (let i = 1; i <= currentDoc.numPages; i++) {
+    if (generation !== renderGeneration) return;
+
+    const page = await currentDoc.getPage(i);
+    if (generation !== renderGeneration) return;
+
     const viewport = page.getViewport({ scale: 0.5 });
 
     const div = document.createElement('div');
@@ -267,11 +276,12 @@ async function renderThumbnails() {
     canvas.height = viewport.height;
     const ctx = canvas.getContext('2d');
     await page.render({ canvasContext: ctx, viewport }).promise;
+    if (generation !== renderGeneration) return;
 
     const info = document.createElement('div');
     info.className = 'slide-thumb-info';
-    const hasNote = selectedPdf.notes && selectedPdf.notes[i];
-    const hasVideo = selectedPdf.videos && selectedPdf.videos[i];
+    const hasNote = currentPdf.notes && currentPdf.notes[i];
+    const hasVideo = currentPdf.videos && currentPdf.videos[i];
     info.innerHTML = `
       <span>${t('slide.slide')} ${i}</span>
       <div class="slide-thumb-badges">
