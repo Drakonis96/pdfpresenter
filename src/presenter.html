@@ -307,8 +307,6 @@
         const slideCanvas = document.getElementById('current-slide-canvas');
         drawCanvas.width = slideCanvas.width;
         drawCanvas.height = slideCanvas.height;
-        drawCanvas.style.width = slideCanvas.style.width;
-        drawCanvas.style.height = slideCanvas.style.height;
         drawCanvas.getContext('2d').clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       }
 
@@ -330,11 +328,9 @@
       const dpr = window.devicePixelRatio || 1;
       const viewport = page.getViewport({ scale: scale * dpr });
 
-      // Size canvas buffer at high resolution, display at CSS size
+      // Buffer at high resolution; CSS max-width/max-height handles display sizing
       canvas.width = viewport.width;
       canvas.height = viewport.height;
-      canvas.style.width = (viewport.width / dpr) + 'px';
-      canvas.style.height = (viewport.height / dpr) + 'px';
 
       const ctx = canvas.getContext('2d');
       await page.render({ canvasContext: ctx, viewport }).promise;
@@ -767,6 +763,7 @@
       let isDragging = false;
       let startY = 0;
       let startHeight = 0;
+      let hResizeTimer = null;
 
       divider.addEventListener('mousedown', (e) => {
         isDragging = true;
@@ -785,11 +782,19 @@
         const newHeight = Math.max(60, Math.min(maxH, startHeight + diff));
         nextSlideArea.style.height = newHeight + 'px';
         nextSlideArea.style.flexShrink = '0';
+        // Debounced re-render for real-time update
+        clearTimeout(hResizeTimer);
+        hResizeTimer = setTimeout(() => {
+          if (pdfDoc && currentSlide && currentSlide < totalSlides) {
+            renderSlideToCanvas(currentSlide + 1, 'next-slide-canvas', 'next-slide-container');
+          }
+        }, 100);
       });
 
       document.addEventListener('mouseup', () => {
         if (!isDragging) return;
         isDragging = false;
+        clearTimeout(hResizeTimer);
         divider.classList.remove('dragging');
         document.body.classList.remove('resizing-h');
         // Re-render next slide to fit new size
@@ -852,6 +857,7 @@
       let isDragging = false;
       let startX = 0;
       let startWidth = 0;
+      let vResizeTimer = null;
 
       divider.addEventListener('mousedown', (e) => {
         isDragging = true;
@@ -867,11 +873,19 @@
         const diff = startX - e.clientX;
         const newWidth = Math.max(200, Math.min(window.innerWidth * 0.6, startWidth + diff));
         rightPanel.style.width = newWidth + 'px';
+        // Debounced re-render for real-time update
+        clearTimeout(vResizeTimer);
+        vResizeTimer = setTimeout(() => {
+          if (pdfDoc && currentSlide) {
+            renderSlide(currentSlide);
+          }
+        }, 100);
       });
 
       document.addEventListener('mouseup', () => {
         if (!isDragging) return;
         isDragging = false;
+        clearTimeout(vResizeTimer);
         divider.classList.remove('dragging');
         document.body.classList.remove('resizing');
         // Re-render slides to fit new layout
