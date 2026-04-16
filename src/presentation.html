@@ -332,6 +332,11 @@
           case 'tool': setToolFromRemote(action.tool); break;
           case 'tool-data': handleToolData(action.data); break;
           case 'tool-size': handleToolSize(action.data); break;
+          case 'zoom-factor':
+            if (action.factor) {
+              zoomFactor = parseFloat(action.factor);
+            }
+            break;
           case 'video-toggle': toggleVideoPlayback(); break;
           case 'video-seek': if (typeof action.time === 'number') seekVideoLocal(action.time); break;
           case 'video-show': showVideoOverlayFromRemote(action.data); break;
@@ -372,6 +377,12 @@
       document.querySelectorAll('.toolbar-btn[data-tool]').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tool === toolName);
       });
+
+      // Update slider label based on active tool
+      const label = document.querySelector('.toolbar-label');
+      if (label) {
+        label.textContent = toolName === 'zoom' ? 'Diámetro' : 'Tamaño';
+      }
 
       window.api.sendStateUpdate({ toolMode: toolName || null });
     }
@@ -452,7 +463,7 @@
     let isDrawing = false;
     let lastDrawX = 0;
     let lastDrawY = 0;
-    const ZOOM_FACTOR = 2.5;
+    let zoomFactor = 2;
 
     function updateZoomCanvas(xPercent, yPercent) {
       const slideCanvas = document.getElementById('slide-canvas');
@@ -464,9 +475,9 @@
       zoomCanvas.height = lensSize;
 
       const ctx = zoomCanvas.getContext('2d');
-      const srcX = (xPercent / 100) * slideCanvas.width - (lensSize / ZOOM_FACTOR) / 2;
-      const srcY = (yPercent / 100) * slideCanvas.height - (lensSize / ZOOM_FACTOR) / 2;
-      const srcSize = lensSize / ZOOM_FACTOR;
+      const srcX = (xPercent / 100) * slideCanvas.width - (lensSize / zoomFactor) / 2;
+      const srcY = (yPercent / 100) * slideCanvas.height - (lensSize / zoomFactor) / 2;
+      const srcSize = lensSize / zoomFactor;
 
       ctx.clearRect(0, 0, lensSize, lensSize);
       ctx.drawImage(slideCanvas, srcX, srcY, srcSize, srcSize, 0, 0, lensSize, lensSize);
@@ -741,6 +752,13 @@
       // Size slider
       document.getElementById('tool-size-slider').addEventListener('input', (e) => {
         toolSize = parseInt(e.target.value);
+        // Immediately update local zoom lens diameter
+        if (activeTool === 'zoom') {
+          const lens = document.getElementById('zoom-lens');
+          const lensSize = toolSize * 10;
+          lens.style.width = lensSize + 'px';
+          lens.style.height = lensSize + 'px';
+        }
       });
 
       // QR button

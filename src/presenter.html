@@ -159,6 +159,14 @@
             <label class="tool-size-label">Tamaño</label>
             <input type="range" class="tool-slider" id="tool-size-slider" min="2" max="50" value="15">
           </div>
+          <div class="tools-separator zoom-factor-group hidden" id="zoom-factor-separator"></div>
+          <div class="tools-group zoom-factor-group hidden" id="zoom-factor-controls">
+            <label class="tool-size-label">Zoom</label>
+            <button class="zoom-factor-btn" data-factor="1.5">1.5×</button>
+            <button class="zoom-factor-btn active" data-factor="2">2×</button>
+            <button class="zoom-factor-btn" data-factor="2.5">2.5×</button>
+            <button class="zoom-factor-btn" data-factor="3">3×</button>
+          </div>
           <div class="tools-separator"></div>
           <div class="tools-group">
             <button class="tool-btn" id="tb-clear" title="Limpiar dibujo">
@@ -246,7 +254,7 @@
     let videoCurrentTime = 0;
     let videoSeeking = false;
     let videoTimeInterval = null;
-    const ZOOM_FACTOR = 2.5;
+    let zoomFactor = 2;
     let notesFontSize = 15;
     let renderTasks = {}; // Track in-flight PDF.js render tasks per canvas
 
@@ -702,7 +710,24 @@
         toolSize = parseInt(e.target.value);
         if (activeTool) {
           sendToolSize();
+          // Immediately update local zoom lens diameter
+          if (activeTool === 'zoom') {
+            const lens = document.getElementById('zoom-lens');
+            const lensSize = toolSize * 10;
+            lens.style.width = lensSize + 'px';
+            lens.style.height = lensSize + 'px';
+          }
         }
+      });
+
+      // Zoom factor buttons
+      document.querySelectorAll('.zoom-factor-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          zoomFactor = parseFloat(btn.dataset.factor);
+          document.querySelectorAll('.zoom-factor-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          window.api.sendPresenterControl({ type: 'zoom-factor', factor: zoomFactor });
+        });
       });
     }
 
@@ -717,6 +742,17 @@
 
       document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tool === toolName);
+      });
+
+      // Update slider label based on active tool
+      const label = document.querySelector('.tool-size-label');
+      if (label) {
+        label.textContent = toolName === 'zoom' ? 'Diámetro' : 'Tamaño';
+      }
+
+      // Show/hide zoom factor controls
+      document.querySelectorAll('.zoom-factor-group').forEach(el => {
+        el.classList.toggle('hidden', toolName !== 'zoom');
       });
 
       // Forward to audience
@@ -866,9 +902,9 @@
       zoomCanvas.height = lensSize;
 
       const ctx = zoomCanvas.getContext('2d');
-      const srcX = (xPercent / 100) * slideCanvas.width - (lensSize / ZOOM_FACTOR) / 2;
-      const srcY = (yPercent / 100) * slideCanvas.height - (lensSize / ZOOM_FACTOR) / 2;
-      const srcSize = lensSize / ZOOM_FACTOR;
+      const srcX = (xPercent / 100) * slideCanvas.width - (lensSize / zoomFactor) / 2;
+      const srcY = (yPercent / 100) * slideCanvas.height - (lensSize / zoomFactor) / 2;
+      const srcSize = lensSize / zoomFactor;
 
       ctx.clearRect(0, 0, lensSize, lensSize);
       ctx.drawImage(slideCanvas, srcX, srcY, srcSize, srcSize, 0, 0, lensSize, lensSize);
@@ -1177,6 +1213,14 @@
           case 'tool': setTool(action.tool); break;
           case 'tool-data': handleToolDataFromRemote(action.data); break;
           case 'tool-size': handleToolSizeFromRemote(action.data); break;
+          case 'zoom-factor':
+            if (action.factor) {
+              zoomFactor = parseFloat(action.factor);
+              document.querySelectorAll('.zoom-factor-btn').forEach(b => {
+                b.classList.toggle('active', parseFloat(b.dataset.factor) === zoomFactor);
+              });
+            }
+            break;
           case 'video-toggle': toggleVideoPlaybackLocal(); break;
           case 'video-seek': if (typeof action.time === 'number') seekVideoLocal(action.time); break;
           case 'black-screen':

@@ -154,6 +154,11 @@ function startServer(dataDirPath) {
             notifyElectron('tool-size', msg.data);
             break;
 
+          case 'zoom-factor':
+            broadcast({ type: 'zoom-factor', factor: msg.factor });
+            notifyElectron('zoom-factor', { factor: msg.factor });
+            break;
+
           case 'video-toggle':
             currentState.videoPlaying = !currentState.videoPlaying;
             broadcast({ type: 'state', data: currentState }, ws);

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, nativeImage, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, nativeImage, session, powerSaveBlocker } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
@@ -9,6 +9,8 @@ const store = new Store();
 let mainWindow;
 let presentationWindow;
 let presenterWindow;
+let wsBroadcast = null;
+let powerSaveBlockerId = null;
 
 const DATA_DIR = path.join(app.getPath('userData'), 'presentations');
 
@@ -70,6 +72,7 @@ function createPresentationWindow(pdfId, startSlide) {
 
   presentationWindow.on('closed', () => {
     presentationWindow = null;
+    stopPowerSaveBlock();
     if (presenterWindow) {
       presenterWindow.close();
       presenterWindow = null;
@@ -198,14 +201,29 @@ ipcMain.handle('get-pdf-data', (event, pdfId) => {
   return fs.readFileSync(filePath).toString('base64');
 });
 
+function startPowerSaveBlock() {
+  if (powerSaveBlockerId === null || !powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+    powerSaveBlockerId = powerSaveBlocker.start('prevent-display-sleep');
+  }
+}
+
+function stopPowerSaveBlock() {
+  if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+    powerSaveBlocker.stop(powerSaveBlockerId);
+    powerSaveBlockerId = null;
+  }
+}
+
 ipcMain.handle('start-presentation', (event, pdfId, startSlide) => {
   createPresentationWindow(pdfId, startSlide);
+  startPowerSaveBlock();
   return true;
 });
 
 ipcMain.handle('start-presenter-mode', (event, pdfId, startSlide) => {
   createPresentationWindow(pdfId, startSlide);
   createPresenterWindow(pdfId, startSlide);
+  startPowerSaveBlock();
   return true;
 });
 
@@ -223,6 +241,7 @@ ipcMain.handle('stop-presentation', () => {
       if (!prWin.isDestroyed()) prWin.close();
     });
   }
+  stopPowerSaveBlock();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('presentation-ended');
   }
@@ -266,6 +285,10 @@ ipcMain.on('presentation-control', (event, action) => {
 ipcMain.on('presenter-control', (event, action) => {
   if (presentationWindow) {
     presentationWindow.webContents.send('presentation-control', action);
+  }
+  // Broadcast zoom-factor to WebSocket clients (mobile remote)
+  if (action && action.type === 'zoom-factor' && wsBroadcast) {
+    wsBroadcast({ type: 'zoom-factor', factor: action.factor });
   }
 });
 
@@ -335,6 +358,7 @@ app.whenReady().then(async () => {
   
   // Bridge server events to Electron windows
   const { setElectronCallback, updateState, broadcast } = require('./server');
+  wsBroadcast = broadcast;
   setElectronCallback((action, data, replyCallback) => {
     if (action === 'volume-get') {
       if (process.platform === 'darwin') {
@@ -390,6 +414,7 @@ app.whenReady().then(async () => {
     else if (action === 'tool') msg.tool = data;
     else if (action === 'tool-data') msg.data = data;
     else if (action === 'tool-size') msg.data = data;
+    else if (action === 'zoom-factor') msg.factor = data.factor;
     if (presentationWindow) {
       presentationWindow.webContents.send('presentation-control', msg);
     }

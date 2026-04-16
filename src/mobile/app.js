@@ -66,6 +66,13 @@ function connect() {
           toolSizes[msg.data.tool] = msg.data.size;
         }
         break;
+      case 'zoom-factor':
+        if (msg.factor) {
+          document.querySelectorAll('#zoom-factor-buttons .zoom-factor-btn').forEach(b => {
+            b.classList.toggle('active', parseFloat(b.dataset.factor) === parseFloat(msg.factor));
+          });
+        }
+        break;
       case 'timer-sync':
         handleTimerSync(msg.data);
         break;
@@ -638,6 +645,15 @@ document.getElementById('btn-font-increase').addEventListener('click', () => {
       send({ type: 'tool-size', data: { tool, size: toolSizes[tool] } });
       // Update preview overlay live
       updatePreviewToolSize(tool);
+    });
+  });
+
+  // Zoom factor buttons
+  document.querySelectorAll('#zoom-factor-buttons .zoom-factor-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#zoom-factor-buttons .zoom-factor-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      send({ type: 'zoom-factor', factor: parseFloat(btn.dataset.factor) });
     });
   });
 

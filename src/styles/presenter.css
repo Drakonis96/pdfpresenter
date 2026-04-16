@@ -423,6 +423,29 @@ body {
   border: 2px solid rgba(255, 255, 255, 0.3);
 }
 
+/* Zoom factor buttons */
+.zoom-factor-btn {
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zoom-factor-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.zoom-factor-btn.active {
+  background: rgba(99, 102, 241, 0.85);
+  color: #fff;
+  border-color: rgba(99, 102, 241, 0.85);
+}
+
 /* ===== Resize Divider ===== */
 .resize-divider {
   width: 6px;
