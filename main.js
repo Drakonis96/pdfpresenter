@@ -45,9 +45,19 @@ function createMainWindow() {
   });
 }
 
+function getDisplays() {
+  const allDisplays = screen.getAllDisplays();
+  if (allDisplays.length <= 1) {
+    return { presenter: allDisplays[0], audience: allDisplays[0] };
+  }
+  // On macOS, internal display is marked as internal; on other platforms fall back to primary
+  const builtIn = allDisplays.find(d => d.internal) || screen.getPrimaryDisplay();
+  const external = allDisplays.find(d => d.id !== builtIn.id) || builtIn;
+  return { presenter: builtIn, audience: external };
+}
+
 function createPresentationWindow(pdfId, startSlide) {
-  const displays = screen.getAllDisplays();
-  const externalDisplay = displays.length > 1 ? displays[1] : displays[0];
+  const { audience: externalDisplay } = getDisplays();
 
   presentationWindow = new BrowserWindow({
     x: externalDisplay.bounds.x,
@@ -84,8 +94,7 @@ function createPresentationWindow(pdfId, startSlide) {
 }
 
 function createPresenterWindow(pdfId, startSlide) {
-  const displays = screen.getAllDisplays();
-  const primaryDisplay = displays[0];
+  const { presenter: primaryDisplay } = getDisplays();
 
   presenterWindow = new BrowserWindow({
     x: primaryDisplay.bounds.x,
