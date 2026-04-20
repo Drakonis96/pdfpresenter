@@ -4,10 +4,12 @@ const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const QRCode = require('qrcode');
 
 let server;
 let wss;
+let connectionPin = null;
 let dataDir;
 let currentState = {
   presenting: false,
@@ -47,7 +49,7 @@ function broadcast(data, excludeWs = null) {
   }
 }
 
-function startServer(dataDirPath) {
+function startServer(dataDirPath, port) {
   return new Promise((resolve) => {
     dataDir = dataDirPath;
     const app = express();
@@ -63,7 +65,12 @@ function startServer(dataDirPath) {
 
     // Serve PDF files
     app.get('/api/pdf/:id', (req, res) => {
-      const pdfPath = path.join(dataDir, `${req.params.id}.pdf`);
+      const safeId = path.basename(req.params.id);
+      const pdfPath = path.join(dataDir, `${safeId}.pdf`);
+      const resolved = path.resolve(pdfPath);
+      if (!resolved.startsWith(path.resolve(dataDir) + path.sep)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
       if (!fs.existsSync(pdfPath)) {
         return res.status(404).json({ error: 'PDF not found' });
       }
@@ -79,9 +86,10 @@ function startServer(dataDirPath) {
     // Get QR code
     app.get('/api/qr', async (req, res) => {
       const ip = getLocalIP();
-      const url = `http://${ip}:${server.address().port}/mobile/`;
+      const port = server.address().port;
+      const url = `http://${ip}:${port}/mobile/?pin=${connectionPin}`;
       const qr = await QRCode.toDataURL(url, { width: 300, margin: 2 });
-      res.json({ qr, url, ip });
+      res.json({ qr, url, ip, pin: connectionPin });
     });
 
     // Get presentations metadata
@@ -95,7 +103,21 @@ function startServer(dataDirPath) {
     });
 
     // WebSocket handling
-    wss.on('connection', (ws) => {
+    wss.on('connection', (ws, req) => {
+      // Check PIN authentication for non-local connections
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const pin = url.searchParams.get('pin');
+      const isLocalElectron = req.headers.origin && (
+        req.headers.origin.startsWith('http://localhost') ||
+        req.headers.origin.startsWith('http://127.0.0.1') ||
+        req.headers.origin.startsWith('file://')
+      );
+
+      if (!isLocalElectron && pin !== connectionPin) {
+        ws.close(4001, 'Invalid PIN');
+        return;
+      }
+
       clients.add(ws);
 
       // Send current state to new client
@@ -108,14 +130,17 @@ function startServer(dataDirPath) {
         } catch { return; }
 
         switch (msg.type) {
-          case 'navigate':
-            currentState.currentSlide = msg.slide;
+          case 'navigate': {
+            const slide = parseInt(msg.slide, 10);
+            if (isNaN(slide) || slide < 1 || (currentState.totalSlides > 0 && slide > currentState.totalSlides)) break;
+            currentState.currentSlide = slide;
             currentState.videoPlaying = false;
             currentState.slideZoom = { scale: 1, originX: 50, originY: 50 };
             broadcast({ type: 'state', data: currentState });
             // Also tell Electron presentation window
-            notifyElectron('navigate', msg.slide);
+            notifyElectron('navigate', slide);
             break;
+          }
 
           case 'next':
             if (currentState.currentSlide < currentState.totalSlides) {
@@ -216,13 +241,22 @@ function startServer(dataDirPath) {
       ws.on('close', () => {
         clients.delete(ws);
       });
+
+      ws.on('error', (err) => {
+        console.error('WebSocket client error:', err.message);
+        clients.delete(ws);
+      });
     });
 
-    const PORT = 3491;
+    // Generate a 6-digit PIN for this session
+    connectionPin = String(crypto.randomInt(100000, 999999));
+
+    const PORT = port != null ? port : 3491;
     server.listen(PORT, '0.0.0.0', () => {
+      const actualPort = server.address().port;
       const ip = getLocalIP();
-      console.log(`Server running at http://${ip}:${PORT}`);
-      resolve({ ip, port: PORT });
+      console.log(`Server running at http://${ip}:${actualPort}`);
+      resolve({ ip, port: actualPort });
     });
   });
 }
@@ -266,5 +300,6 @@ module.exports = {
   updateState,
   setElectronCallback,
   broadcast,
-  getCurrentState: () => currentState
+  getCurrentState: () => currentState,
+  getConnectionPin: () => connectionPin
 };

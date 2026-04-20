@@ -2,14 +2,17 @@ const http = require('http');
 const WebSocket = require('ws');
 const os = require('os');
 const path = require('path');
+const fs = require('fs');
 
 let serverModule;
 let serverInfo;
+let tmpDir;
 
 beforeAll(async () => {
   serverModule = require('../server');
-  const tmpDir = path.join(os.tmpdir(), 'pdfpresenter-test-' + Date.now());
-  serverInfo = await serverModule.startServer(tmpDir);
+  tmpDir = path.join(os.tmpdir(), 'pdfpresenter-test-' + Date.now());
+  fs.mkdirSync(tmpDir, { recursive: true });
+  serverInfo = await serverModule.startServer(tmpDir, 0);
 }, 15000);
 
 afterAll(async () => {
@@ -58,16 +61,17 @@ describe('Server Module', () => {
   });
 
   describe('HTTP Server', () => {
-    test('starts on expected port', () => {
+    test('starts on a dynamic port', () => {
       expect(serverInfo).toHaveProperty('ip');
-      expect(serverInfo).toHaveProperty('port', 3491);
+      expect(serverInfo).toHaveProperty('port');
+      expect(serverInfo.port).toBeGreaterThan(0);
     });
 
     test('getServerInfo returns server details', () => {
       const info = serverModule.getServerInfo();
       expect(info).not.toBeNull();
       expect(info).toHaveProperty('ip');
-      expect(info).toHaveProperty('port', 3491);
+      expect(info).toHaveProperty('port');
       expect(info).toHaveProperty('url');
       expect(info.url).toContain('/mobile/');
     });
@@ -124,12 +128,14 @@ describe('Server Module', () => {
   });
 
   describe('WebSocket', () => {
+    const wsOpts = () => ({ headers: { origin: 'http://localhost' } });
+
     afterEach(() => {
       serverModule.setElectronCallback(null);
     });
 
     test('connects and receives initial state', (done) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`, wsOpts());
       ws.on('message', (data) => {
         const msg = JSON.parse(data);
         expect(msg).toHaveProperty('type', 'state');
@@ -141,7 +147,7 @@ describe('Server Module', () => {
     });
 
     test('handles navigate message', (done) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`, wsOpts());
       let msgCount = 0;
       ws.on('open', () => {
         ws.send(JSON.stringify({ type: 'navigate', slide: 3 }));
@@ -158,7 +164,7 @@ describe('Server Module', () => {
     });
 
     test('handles tool message', (done) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`, wsOpts());
       let msgCount = 0;
       ws.on('open', () => {
         ws.send(JSON.stringify({ type: 'tool', tool: 'flashlight' }));
@@ -175,9 +181,9 @@ describe('Server Module', () => {
     });
 
     test('broadcasts to other clients', (done) => {
-      const ws1 = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`);
+      const ws1 = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`, wsOpts());
       ws1.on('open', () => {
-        const ws2 = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`);
+        const ws2 = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`, wsOpts());
         let ws2Msgs = 0;
         ws2.on('message', (data) => {
           ws2Msgs++;
@@ -194,6 +200,29 @@ describe('Server Module', () => {
         });
       });
     }, 10000);
+
+    test('rejects connection without valid PIN from non-local origin', (done) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}?pin=wrong`, {
+        headers: { origin: 'http://192.168.1.100' }
+      });
+      ws.on('close', (code) => {
+        expect(code).toBe(4001);
+        done();
+      });
+    });
+
+    test('accepts connection with valid PIN from non-local origin', (done) => {
+      const pin = serverModule.getConnectionPin();
+      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}?pin=${pin}`, {
+        headers: { origin: 'http://192.168.1.100' }
+      });
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data);
+        expect(msg).toHaveProperty('type', 'state');
+        ws.close();
+        done();
+      });
+    });
   });
 
   describe('Electron Callback', () => {
@@ -205,11 +234,52 @@ describe('Server Module', () => {
         done();
       });
 
-      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${serverInfo.port}`, {
+        headers: { origin: 'http://localhost' }
+      });
       ws.on('open', () => {
         ws.send(JSON.stringify({ type: 'navigate', slide: 2 }));
         setTimeout(() => ws.close(), 100);
       });
     }, 10000);
+  });
+
+  describe('Security', () => {
+    test('GET /api/pdf with path traversal returns 404', (done) => {
+      http.get(`http://127.0.0.1:${serverInfo.port}/api/pdf/..%2F..%2Fetc%2Fpasswd`, (res) => {
+        expect(res.statusCode).toBe(404);
+        done();
+      });
+    });
+
+    test('GET /api/pdf with safe id serves file if it exists', (done) => {
+      // Create a dummy PDF in tmpDir
+      fs.writeFileSync(path.join(tmpDir, 'testpdf.pdf'), 'dummy');
+      http.get(`http://127.0.0.1:${serverInfo.port}/api/pdf/testpdf`, (res) => {
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['content-type']).toContain('application/pdf');
+        res.resume();
+        res.on('end', done);
+      });
+    });
+
+    test('getConnectionPin returns a 6-digit PIN', () => {
+      const pin = serverModule.getConnectionPin();
+      expect(pin).toMatch(/^\d{6}$/);
+    });
+
+    test('QR code URL includes PIN', (done) => {
+      http.get(`http://127.0.0.1:${serverInfo.port}/api/qr`, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          const result = JSON.parse(data);
+          expect(result).toHaveProperty('pin');
+          expect(result.pin).toMatch(/^\d{6}$/);
+          expect(result.url).toContain(`pin=${result.pin}`);
+          done();
+        });
+      });
+    });
   });
 });

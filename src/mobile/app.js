@@ -39,14 +39,20 @@ function loadPdfJs() {
 }
 
 // WebSocket connection
+let hasConnectedOnce = false;
+
 function connect() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${location.host}`;
+  const pin = new URLSearchParams(location.search).get('pin') || '';
+  const wsUrl = `${protocol}//${location.host}?pin=${encodeURIComponent(pin)}`;
   
   ws = new WebSocket(wsUrl);
   
   ws.onopen = () => {
     console.log('Connected');
+    hasConnectedOnce = true;
+    const toast = document.getElementById('reconnect-toast');
+    if (toast) toast.classList.add('hidden');
     // Request current volume level
     send({ type: 'volume-get' });
   };
@@ -94,6 +100,10 @@ function connect() {
   
   ws.onclose = () => {
     console.log('Disconnected, retrying...');
+    if (hasConnectedOnce) {
+      const toast = document.getElementById('reconnect-toast');
+      if (toast) toast.classList.remove('hidden');
+    }
     setTimeout(connect, 2000);
   };
   
@@ -198,11 +208,13 @@ function handleTimerSync(data) {
   localTimerRunning = data.timerRunning;
   updateMobileTimerDisplay();
 
-  // Start/stop local tick to keep display updating between syncs
+  // Start/stop local tick using timestamp to avoid drift between syncs
   clearInterval(localTimerInterval);
   if (localTimerRunning) {
+    const syncedAt = Date.now();
+    const baseSeconds = localTimerSeconds;
     localTimerInterval = setInterval(() => {
-      localTimerSeconds++;
+      localTimerSeconds = baseSeconds + Math.floor((Date.now() - syncedAt) / 1000);
       updateMobileTimerDisplay();
     }, 1000);
   }

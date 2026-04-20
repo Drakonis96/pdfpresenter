@@ -8,7 +8,7 @@ const path = require('path');
  * PPTX is a ZIP containing XML files. Notes are in ppt/notesSlides/notesSlideN.xml
  */
 async function extractNotes(pptxPath) {
-  const data = fs.readFileSync(pptxPath);
+  const data = await fs.promises.readFile(pptxPath);
   const zip = await JSZip.loadAsync(data);
   
   const notes = {};

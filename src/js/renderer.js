@@ -273,24 +273,14 @@ async function renderThumbnails() {
   const currentPdf = selectedPdf;
   const currentDoc = pdfDoc;
 
+  // Create all DOM elements first, then render in batches
+  const items = [];
   for (let i = 1; i <= currentDoc.numPages; i++) {
-    if (generation !== renderGeneration) return;
-
-    const page = await currentDoc.getPage(i);
-    if (generation !== renderGeneration) return;
-
-    const viewport = page.getViewport({ scale: 0.5 });
-
     const div = document.createElement('div');
     div.className = 'slide-thumb';
     div.dataset.page = i;
 
     const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    if (generation !== renderGeneration) return;
 
     const info = document.createElement('div');
     info.className = 'slide-thumb-info';
@@ -340,6 +330,23 @@ async function renderThumbnails() {
     });
 
     div.addEventListener('click', () => openVideoEditor(i));
+    items.push({ canvas, pageNum: i });
+  }
+
+  // Render canvases in batches of 4 to avoid blocking the UI
+  const BATCH_SIZE = 4;
+  for (let b = 0; b < items.length; b += BATCH_SIZE) {
+    if (generation !== renderGeneration) return;
+    const batch = items.slice(b, b + BATCH_SIZE);
+    await Promise.all(batch.map(async ({ canvas, pageNum }) => {
+      const page = await currentDoc.getPage(pageNum);
+      if (generation !== renderGeneration) return;
+      const viewport = page.getViewport({ scale: 0.5 });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+    }));
   }
 }
 
@@ -846,6 +853,17 @@ function setupNotesViewerKeyboard() {
 
     if (document.activeElement === textarea) return;
 
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      saveCurrentNote();
+      modal.classList.add('hidden');
+      if (notesViewerKeyHandler) {
+        document.removeEventListener('keydown', notesViewerKeyHandler);
+        notesViewerKeyHandler = null;
+      }
+      return;
+    }
+
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
       if (notesViewerSlide < pdfDoc.numPages) {
@@ -1203,6 +1221,14 @@ function setupSettings() {
     if (selectedPdf) {
       renderThumbnails();
       updateDetailInfo();
+    }
+  });
+
+  // Save unsaved notes when closing/reloading the window
+  window.addEventListener('beforeunload', () => {
+    const modal = document.getElementById('notes-viewer-modal');
+    if (modal && !modal.classList.contains('hidden')) {
+      saveCurrentNote();
     }
   });
 }

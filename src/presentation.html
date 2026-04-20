@@ -180,6 +180,7 @@
     let videoCurrentTime = 0;
     let videoSeeking = false;
     let currentRenderTask = null;
+    let renderGeneration = 0;
 
     // Slide zoom state
     let slideZoomScale = 1;
@@ -239,6 +240,7 @@
 
     async function renderSlide(num, fromRemote = false) {
       currentSlide = num;
+      const thisGeneration = ++renderGeneration;
 
       // Reset slide zoom on slide change
       slideZoomScale = 1;
@@ -253,6 +255,8 @@
       }
 
       const page = await pdfDoc.getPage(num);
+      if (thisGeneration !== renderGeneration) return;
+
       const canvas = document.getElementById('slide-canvas');
       const container = document.getElementById('presentation-container');
 

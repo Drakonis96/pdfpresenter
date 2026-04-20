@@ -840,3 +840,35 @@ html, body {
     margin-left: auto;
   }
 }
+
+/* Reconnection toast */
+.reconnect-toast {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--orange);
+  color: var(--orange);
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.reconnect-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--orange);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: reconnect-spin 0.8s linear infinite;
+}
+
+@keyframes reconnect-spin {
+  to { transform: rotate(360deg); }
+}

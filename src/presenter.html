@@ -257,11 +257,13 @@
     let zoomFactor = 2;
     let notesFontSize = 15;
     let renderTasks = {}; // Track in-flight PDF.js render tasks per canvas
+    let renderGeneration = 0;
 
     // Timer
     let timerRunning = false;
     let timerSeconds = 0;
     let timerInterval = null;
+    let timerStartedAt = null; // timestamp when timer was last started
     let blackScreenEnabled = false;
 
     // Slide zoom state
@@ -322,6 +324,7 @@
 
     async function renderSlide(num, fromRemote = false) {
       currentSlide = num;
+      const thisGeneration = ++renderGeneration;
       document.getElementById('slide-counter').textContent = `${num} / ${totalSlides}`;
 
       // Reset slide zoom on slide change
@@ -332,12 +335,14 @@
 
       // Render current slide
       await renderSlideToCanvas(num, 'current-slide-canvas', 'current-slide-container');
+      if (thisGeneration !== renderGeneration) return;
 
       // Render next slide preview
       if (num < totalSlides) {
         document.getElementById('next-slide-canvas').classList.remove('hidden');
         document.getElementById('no-next-slide').classList.add('hidden');
         await renderSlideToCanvas(num + 1, 'next-slide-canvas', 'next-slide-container');
+        if (thisGeneration !== renderGeneration) return;
       } else {
         document.getElementById('next-slide-canvas').classList.add('hidden');
         document.getElementById('no-next-slide').classList.remove('hidden');
@@ -635,10 +640,11 @@
 
     function startTimer() {
       timerRunning = true;
+      timerStartedAt = Date.now() - (timerSeconds * 1000);
       document.getElementById('timer-play-icon').classList.add('hidden');
       document.getElementById('timer-pause-icon').classList.remove('hidden');
       timerInterval = setInterval(() => {
-        timerSeconds++;
+        timerSeconds = Math.floor((Date.now() - timerStartedAt) / 1000);
         updateTimerDisplay();
         window.api.sendTimerSync({ timerSeconds, timerRunning: true });
       }, 1000);
@@ -646,6 +652,7 @@
 
     function pauseTimer() {
       timerRunning = false;
+      timerStartedAt = null;
       document.getElementById('timer-play-icon').classList.remove('hidden');
       document.getElementById('timer-pause-icon').classList.add('hidden');
       clearInterval(timerInterval);
@@ -654,6 +661,9 @@
 
     function resetTimer() {
       timerSeconds = 0;
+      if (timerRunning) {
+        timerStartedAt = Date.now();
+      }
       updateTimerDisplay();
       window.api.sendTimerSync({ timerSeconds: 0, timerRunning });
     }
@@ -1061,9 +1071,14 @@
     }
 
     // ===== Thumbnail Carousel =====
+    let thumbnailGeneration = 0;
     async function renderThumbnailCarousel() {
+      const generation = ++thumbnailGeneration;
       const carousel = document.getElementById('thumbnail-carousel');
       carousel.innerHTML = '';
+
+      // Create all DOM elements first (non-blocking)
+      const items = [];
       for (let i = 1; i <= totalSlides; i++) {
         const thumb = document.createElement('div');
         thumb.className = 'thumb-item' + (i === currentSlide ? ' active' : '');
@@ -1079,18 +1094,27 @@
 
         thumb.addEventListener('click', () => renderSlide(i));
         carousel.appendChild(thumb);
+        items.push({ canvas, pageNum: i });
+      }
 
-        // Render thumbnail
-        const page = await pdfDoc.getPage(i);
-        const defaultVp = page.getViewport({ scale: 1 });
-        const thumbDpr = window.devicePixelRatio || 1;
-        const thumbScale = 120 / defaultVp.width;
-        const vp = page.getViewport({ scale: thumbScale * thumbDpr });
-        canvas.width = vp.width;
-        canvas.height = vp.height;
-        canvas.style.width = (vp.width / thumbDpr) + 'px';
-        canvas.style.height = (vp.height / thumbDpr) + 'px';
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      // Render thumbnails in batches to avoid blocking the UI
+      const BATCH_SIZE = 4;
+      for (let b = 0; b < items.length; b += BATCH_SIZE) {
+        if (generation !== thumbnailGeneration) return;
+        const batch = items.slice(b, b + BATCH_SIZE);
+        await Promise.all(batch.map(async ({ canvas, pageNum }) => {
+          const page = await pdfDoc.getPage(pageNum);
+          if (generation !== thumbnailGeneration) return;
+          const defaultVp = page.getViewport({ scale: 1 });
+          const thumbDpr = window.devicePixelRatio || 1;
+          const thumbScale = 120 / defaultVp.width;
+          const vp = page.getViewport({ scale: thumbScale * thumbDpr });
+          canvas.width = vp.width;
+          canvas.height = vp.height;
+          canvas.style.width = (vp.width / thumbDpr) + 'px';
+          canvas.style.height = (vp.height / thumbDpr) + 'px';
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        }));
       }
     }
 
@@ -1232,15 +1256,17 @@
               timerRunning = action.data.timerRunning;
               timerSeconds = action.data.timerSeconds;
               if (timerRunning) {
+                timerStartedAt = Date.now() - (timerSeconds * 1000);
                 clearInterval(timerInterval);
                 timerInterval = setInterval(() => {
-                  timerSeconds++;
+                  timerSeconds = Math.floor((Date.now() - timerStartedAt) / 1000);
                   updateTimerDisplay();
                   window.api.sendTimerSync({ timerSeconds, timerRunning: true });
                 }, 1000);
                 document.getElementById('timer-play-icon').classList.add('hidden');
                 document.getElementById('timer-pause-icon').classList.remove('hidden');
               } else {
+                timerStartedAt = null;
                 clearInterval(timerInterval);
                 document.getElementById('timer-play-icon').classList.remove('hidden');
                 document.getElementById('timer-pause-icon').classList.add('hidden');
@@ -1251,6 +1277,9 @@
           case 'timer-reset':
             if (action.data) {
               timerSeconds = 0;
+              if (timerRunning) {
+                timerStartedAt = Date.now();
+              }
               updateTimerDisplay();
               window.api.sendTimerSync({ timerSeconds: 0, timerRunning });
             }
