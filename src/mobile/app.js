@@ -129,8 +129,8 @@ async function handleStateUpdate(newState) {
   if (state.presenting) {
     showScreen('screen-remote');
     
-    // Sync timer from initial state
-    if (newState.timerSeconds !== undefined) {
+    // Sync timer only on initial connection (not on every slide change)
+    if (!wasPresenting && newState.timerSeconds !== undefined) {
       handleTimerSync({ timerSeconds: newState.timerSeconds, timerRunning: newState.timerRunning });
     }
 
@@ -327,7 +327,7 @@ document.getElementById('btn-video-toggle').addEventListener('click', () => {
 
 // Timer toggle (click on timer to pause/resume)
 document.getElementById('mobile-timer').addEventListener('click', () => {
-  send({ type: 'timer-toggle' });
+  send({ type: 'timer-toggle', data: { timerSeconds: localTimerSeconds } });
 });
 
 // Timer reset

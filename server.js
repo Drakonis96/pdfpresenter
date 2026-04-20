@@ -197,6 +197,9 @@ function startServer(dataDirPath, port) {
             break;
 
           case 'timer-toggle':
+            if (msg.data && msg.data.timerSeconds !== undefined) {
+              currentState.timerSeconds = msg.data.timerSeconds;
+            }
             currentState.timerRunning = !currentState.timerRunning;
             broadcast({ type: 'timer-sync', data: { timerSeconds: currentState.timerSeconds, timerRunning: currentState.timerRunning } });
             notifyElectron('timer-toggle', { timerSeconds: currentState.timerSeconds, timerRunning: currentState.timerRunning });
