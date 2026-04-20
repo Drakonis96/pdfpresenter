@@ -95,82 +95,74 @@ function normalizePath(p) {
 }
 
 async function extractTextFromNoteXml(xml) {
-  const result = await xml2js.parseStringPromise(xml, { explicitArray: true });
-  
-  // Navigate the XML structure to find text content
-  // The notes are typically in p:notes > p:cSld > p:spTree > p:sp > p:txBody > a:p > a:r > a:t
-  const texts = [];
-  
-  function findText(obj) {
-    if (!obj || typeof obj !== 'object') return;
-    
-    if (Array.isArray(obj)) {
-      for (const item of obj) findText(item);
-      return;
-    }
-    
-    // Look for a:t (text) elements
-    if (obj['a:t']) {
-      for (const t of (Array.isArray(obj['a:t']) ? obj['a:t'] : [obj['a:t']])) {
-        if (typeof t === 'string') {
-          texts.push(t);
-        } else if (t && t._) {
-          texts.push(t._);
-        }
-      }
-    }
-    
-    // Recurse into child elements
-    for (const key of Object.keys(obj)) {
-      if (key === '$' || key === '_') continue;
-      findText(obj[key]);
-    }
-  }
-  
-  // Find the text body in shapes, but skip the slide number placeholder
+  // Pre-process: convert a:br (line break) elements to text runs with newline,
+  // so that Shift+Enter line breaks from PowerPoint are preserved.
+  const processedXml = xml.replace(/<a:br\b[^/>]*\/>/g, '<a:r><a:t>\n</a:t></a:r>')
+    .replace(/<a:br\b[^>]*>[\s\S]*?<\/a:br>/g, '<a:r><a:t>\n</a:t></a:r>');
+
+  const result = await xml2js.parseStringPromise(processedXml, { explicitArray: true });
+
   try {
     const cSld = result['p:notes']?.['p:cSld'];
     if (!cSld) return '';
-    
+
     const spTree = cSld[0]?.['p:spTree'];
     if (!spTree) return '';
-    
+
     const shapes = spTree[0]?.['p:sp'] || [];
-    
+
     for (const sp of shapes) {
-      // Check if this is the notes text box (type 12 = notes) vs slide image placeholder
       const nvSpPr = sp['p:nvSpPr'];
       if (nvSpPr) {
         const nvPr = nvSpPr[0]?.['p:nvPr'];
         if (nvPr) {
           const ph = nvPr[0]?.['p:ph'];
-          if (ph && ph[0]?.$?.type === 'body') {
-            // This is the notes body
-            findText(sp['p:txBody']);
-          } else if (ph && ph[0]?.$?.idx && !ph[0]?.$?.type) {
-            // Notes placeholder without explicit type - might be the notes body
-            findText(sp['p:txBody']);
+          if (ph && (ph[0]?.$?.type === 'body' || (ph[0]?.$?.idx && !ph[0]?.$?.type))) {
+            const text = extractParagraphsFromTxBody(sp['p:txBody']);
+            if (text.trim()) return text;
           }
         }
       }
     }
-    
-    // If no text found through typed placeholders, try all text bodies
-    if (texts.length === 0) {
-      for (const sp of shapes) {
-        findText(sp['p:txBody']);
-      }
-      // Filter out just the slide number (single digit)
-      if (texts.length === 1 && /^\d+$/.test(texts[0].trim())) {
-        return '';
+
+    // Fallback: try all text bodies
+    for (const sp of shapes) {
+      if (sp['p:txBody']) {
+        const text = extractParagraphsFromTxBody(sp['p:txBody']);
+        if (text.trim() && !/^\d+$/.test(text.trim())) {
+          return text;
+        }
       }
     }
   } catch (err) {
-    // Fallback: find all text
-    findText(result);
+    return '';
   }
-  
-  return texts.join('\n');
+
+  return '';
+}
+
+function extractParagraphsFromTxBody(txBody) {
+  if (!txBody || !txBody[0]) return '';
+
+  const paragraphs = txBody[0]['a:p'] || [];
+  const lines = [];
+
+  for (const p of paragraphs) {
+    const runs = p['a:r'] || [];
+    let paraText = '';
+
+    for (const r of runs) {
+      const tElements = r['a:t'] || [];
+      for (const t of tElements) {
+        if (typeof t === 'string') paraText += t;
+        else if (t && t._) paraText += t._;
+      }
+    }
+
+    lines.push(paraText);
+  }
+
+  return lines.join('\n');
 }
 
 module.exports = { extractNotes };

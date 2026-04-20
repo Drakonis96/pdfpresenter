@@ -234,7 +234,7 @@ function updateUI() {
   
   if (note && note.trim()) {
     const paragraphs = note.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
-    notesContent.innerHTML = paragraphs.map(p => `<p>${escapeHtml(p).replace(/\n/g, ' ')}</p>`).join('');
+    notesContent.innerHTML = paragraphs.map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('');
   } else {
     notesContent.innerHTML = '<p class="notes-empty">Sin notas para esta diapositiva</p>';
   }

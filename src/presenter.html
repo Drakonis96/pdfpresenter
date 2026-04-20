@@ -418,7 +418,7 @@
       const note = presentationData.notes && presentationData.notes[slideNum];
       if (note) {
         const paragraphs = note.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
-        notesEl.innerHTML = paragraphs.map(p => `<p class="notes-text" style="font-size:${notesFontSize}px">${escapeHtml(p).replace(/\n/g, ' ')}</p>`).join('');
+        notesEl.innerHTML = paragraphs.map(p => `<p class="notes-text" style="font-size:${notesFontSize}px">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('');
       } else {
         notesEl.innerHTML = '<p class="notes-empty">Sin notas para esta diapositiva</p>';
       }
