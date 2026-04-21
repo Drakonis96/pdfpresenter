@@ -189,6 +189,19 @@
     let pinchStartDist = 0;
     let pinchStartScale = 1;
 
+    function toPdfUint8Array(pdfData) {
+      if (!pdfData) return null;
+      if (pdfData instanceof Uint8Array) return pdfData;
+      if (pdfData instanceof ArrayBuffer) return new Uint8Array(pdfData);
+      if (ArrayBuffer.isView(pdfData)) {
+        return new Uint8Array(pdfData.buffer, pdfData.byteOffset, pdfData.byteLength);
+      }
+      if (typeof pdfData === 'string') {
+        return Uint8Array.from(atob(pdfData), c => c.charCodeAt(0));
+      }
+      return new Uint8Array(pdfData);
+    }
+
     async function initPresentation() {
       const params = window.api.getQueryParams();
       const pdfId = params.pdfId;
@@ -200,8 +213,8 @@
       presentationData = presentations.find(p => p.id === pdfId);
       if (!presentationData) return;
 
-      const base64 = await window.api.getPdfData(pdfId);
-      const data = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      const pdfData = await window.api.getPdfData(pdfId);
+      const data = toPdfUint8Array(pdfData);
       pdfDoc = await pdfjsLib.getDocument({ data }).promise;
       totalSlides = pdfDoc.numPages;
 
