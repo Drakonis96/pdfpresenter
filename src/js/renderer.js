@@ -12,7 +12,14 @@ let notesUndoStack = [];
 let notesRedoStack = [];
 let pendingDeleteId = null;
 let pendingMoveId = null;
-let renderGeneration = 0;
+let pdfPageAspectRatio = 16 / 9;
+let mainThumbSession = null;
+let editThumbSession = null;
+let notesThumbSession = null;
+
+const THUMB_PRELOAD_MARGIN_PX = 600;
+const THUMB_RELEASE_MARGIN_PX = 1400;
+const THUMB_RENDER_CONCURRENCY = 2;
 
 // Load pdf.js from CDN (used in renderer for thumbnails)
 function loadPdfJs() {
@@ -26,6 +33,194 @@ function loadPdfJs() {
     };
     document.head.appendChild(script);
   });
+}
+
+function stopThumbSession(session, container) {
+  if (!session) {
+    if (container) container.innerHTML = '';
+    return null;
+  }
+
+  session.cancelled = true;
+  if (session.observer) session.observer.disconnect();
+  session.queue.length = 0;
+  session.queued.clear();
+  session.items.forEach(({ canvas }) => releaseThumbCanvas(canvas));
+  session.items.clear();
+
+  if (container) container.innerHTML = '';
+  return null;
+}
+
+function releaseThumbCanvas(canvas, aspectRatio = pdfPageAspectRatio) {
+  if (!canvas) return;
+  canvas.width = 0;
+  canvas.height = 0;
+  canvas.dataset.rendered = 'false';
+  canvas.style.aspectRatio = String(aspectRatio);
+}
+
+function shouldReleaseThumb(entry) {
+  if (!entry.rootBounds) return false;
+  return entry.boundingClientRect.bottom < entry.rootBounds.top - THUMB_RELEASE_MARGIN_PX ||
+    entry.boundingClientRect.top > entry.rootBounds.bottom + THUMB_RELEASE_MARGIN_PX;
+}
+
+function enqueueThumbRender(session, pageNum) {
+  if (!session || session.cancelled || session.queued.has(pageNum)) return;
+
+  const item = session.items.get(pageNum);
+  if (!item || item.canvas.dataset.rendered === 'true') return;
+
+  session.queue.push(pageNum);
+  session.queued.add(pageNum);
+  pumpThumbQueue(session);
+}
+
+function pumpThumbQueue(session) {
+  if (!session || session.cancelled) return;
+
+  while (session.rendering < THUMB_RENDER_CONCURRENCY && session.queue.length > 0) {
+    const pageNum = session.queue.shift();
+    session.queued.delete(pageNum);
+    session.rendering++;
+
+    renderThumbPage(session, pageNum).finally(() => {
+      session.rendering--;
+      pumpThumbQueue(session);
+    });
+  }
+}
+
+async function renderThumbPage(session, pageNum) {
+  const item = session.items.get(pageNum);
+  if (!item || session.cancelled || item.canvas.dataset.rendered === 'true') return;
+
+  let page;
+  try {
+    page = await session.doc.getPage(pageNum);
+    if (session.cancelled) return;
+
+    const viewport = page.getViewport({ scale: session.scale });
+    item.canvas.style.aspectRatio = `${viewport.width} / ${viewport.height}`;
+    item.canvas.width = Math.ceil(viewport.width);
+    item.canvas.height = Math.ceil(viewport.height);
+
+    const ctx = item.canvas.getContext('2d', { alpha: false });
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    if (!session.cancelled) {
+      item.canvas.dataset.rendered = 'true';
+    }
+  } catch (err) {
+    if (!session.cancelled) {
+      console.error(`Error rendering thumbnail for slide ${pageNum}:`, err);
+      releaseThumbCanvas(item.canvas);
+    }
+  } finally {
+    if (page && typeof page.cleanup === 'function') {
+      page.cleanup();
+    }
+  }
+}
+
+function createThumbSession({ container, scrollRoot, doc, pageCount, scale, buildItem }) {
+  const session = {
+    cancelled: false,
+    observer: null,
+    queue: [],
+    queued: new Set(),
+    items: new Map(),
+    rendering: 0,
+    doc,
+    scale
+  };
+
+  if (typeof IntersectionObserver === 'function') {
+    session.observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const pageNum = parseInt(entry.target.dataset.page, 10);
+        if (!pageNum) continue;
+
+        if (entry.isIntersecting) {
+          enqueueThumbRender(session, pageNum);
+        } else if (shouldReleaseThumb(entry)) {
+          const item = session.items.get(pageNum);
+          if (item) releaseThumbCanvas(item.canvas);
+        }
+      }
+    }, {
+      root: scrollRoot || null,
+      rootMargin: `${THUMB_PRELOAD_MARGIN_PX}px 0px`,
+      threshold: 0.01
+    });
+  }
+
+  container.innerHTML = '';
+
+  for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+    const item = buildItem(pageNum);
+    item.element.dataset.page = String(pageNum);
+    item.canvas.dataset.rendered = 'false';
+    item.canvas.style.aspectRatio = String(pdfPageAspectRatio);
+
+    container.appendChild(item.element);
+    session.items.set(pageNum, item);
+
+    if (session.observer) {
+      session.observer.observe(item.element);
+    } else {
+      enqueueThumbRender(session, pageNum);
+    }
+  }
+
+  return session;
+}
+
+async function unloadCurrentPdf() {
+  mainThumbSession = stopThumbSession(mainThumbSession, document.getElementById('slides-grid'));
+  editThumbSession = stopThumbSession(editThumbSession, document.getElementById('edit-slides-grid'));
+  notesThumbSession = stopThumbSession(notesThumbSession, document.getElementById('notes-viewer-thumbs'));
+
+  if (!pdfDoc) return;
+
+  const currentDoc = pdfDoc;
+  pdfDoc = null;
+
+  try {
+    await currentDoc.destroy();
+  } catch (err) {
+    console.warn('Error releasing PDF document:', err);
+  }
+}
+
+function toPdfUint8Array(pdfData) {
+  if (!pdfData) return null;
+  if (pdfData instanceof Uint8Array) return pdfData;
+  if (pdfData instanceof ArrayBuffer) return new Uint8Array(pdfData);
+  if (ArrayBuffer.isView(pdfData)) {
+    return new Uint8Array(pdfData.buffer, pdfData.byteOffset, pdfData.byteLength);
+  }
+  if (typeof pdfData === 'string') {
+    return Uint8Array.from(atob(pdfData), c => c.charCodeAt(0));
+  }
+  return new Uint8Array(pdfData);
+}
+
+function closeEditModal() {
+  editThumbSession = stopThumbSession(editThumbSession, document.getElementById('edit-slides-grid'));
+  document.getElementById('edit-modal').classList.add('hidden');
+}
+
+async function closeNotesViewer() {
+  await saveCurrentNote();
+  notesThumbSession = stopThumbSession(notesThumbSession, document.getElementById('notes-viewer-thumbs'));
+  document.getElementById('notes-viewer-modal').classList.add('hidden');
+
+  if (notesViewerKeyHandler) {
+    document.removeEventListener('keydown', notesViewerKeyHandler);
+    notesViewerKeyHandler = null;
+  }
 }
 
 // Initialize
@@ -249,13 +444,21 @@ async function selectPdf(id) {
   document.getElementById('detail-title').textContent = selectedPdf.name;
   document.getElementById('detail-title').title = t('sidebar.rename');
 
-  // Load PDF for thumbnails
-  const base64 = await window.api.getPdfData(id);
-  if (!base64) return;
+  await unloadCurrentPdf();
 
-  const data = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+  const pdfData = await window.api.getPdfData(id);
+  if (!pdfData) return;
+
+  const data = toPdfUint8Array(pdfData);
   pdfDoc = await window.pdfjsLib.getDocument({ data }).promise;
   selectedPdf.totalPages = pdfDoc.numPages;
+
+  if (pdfDoc.numPages > 0) {
+    const firstPage = await pdfDoc.getPage(1);
+    const firstViewport = firstPage.getViewport({ scale: 1 });
+    pdfPageAspectRatio = firstViewport.width / firstViewport.height;
+    if (typeof firstPage.cleanup === 'function') firstPage.cleanup();
+  }
 
   // Update meta
   await saveMeta();
@@ -265,89 +468,79 @@ async function selectPdf(id) {
   updateDetailInfo();
 }
 
-async function renderThumbnails() {
-  const generation = ++renderGeneration;
+function renderThumbnails() {
   const grid = document.getElementById('slides-grid');
-  grid.innerHTML = '';
-
   const currentPdf = selectedPdf;
   const currentDoc = pdfDoc;
 
-  // Create all DOM elements first, then render in batches
-  const items = [];
-  for (let i = 1; i <= currentDoc.numPages; i++) {
-    const div = document.createElement('div');
-    div.className = 'slide-thumb';
-    div.dataset.page = i;
+  if (!currentPdf || !currentDoc) {
+    mainThumbSession = stopThumbSession(mainThumbSession, grid);
+    return;
+  }
 
-    const canvas = document.createElement('canvas');
+  const detailBody = grid.closest('.detail-body');
+  mainThumbSession = stopThumbSession(mainThumbSession, grid);
+  mainThumbSession = createThumbSession({
+    container: grid,
+    scrollRoot: detailBody,
+    doc: currentDoc,
+    pageCount: currentDoc.numPages,
+    scale: 0.5,
+    buildItem: (pageNum) => {
+      const div = document.createElement('div');
+      div.className = 'slide-thumb';
 
-    const info = document.createElement('div');
-    info.className = 'slide-thumb-info';
-    const hasNote = currentPdf.notes && currentPdf.notes[i];
-    const hasVideo = currentPdf.videos && currentPdf.videos[i];
-    info.innerHTML = `
-      <span>${t('slide.slide')} ${i}</span>
-      <div class="slide-thumb-badges">
-        ${hasNote ? '<div class="slide-badge note" title="' + t('slide.hasNotes') + '"></div>' : ''}
-        ${hasVideo ? '<div class="slide-badge video" title="' + t('slide.hasVideo') + '"></div>' : ''}
-      </div>
-    `;
+      const canvas = document.createElement('canvas');
 
-    const actions = document.createElement('div');
-    actions.className = 'slide-thumb-actions';
-    actions.innerHTML = `
-      <button class="btn btn-accent slide-quick-btn" data-action="present" data-slide="${i}" title="${t('detail.startPresentation')}">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="5 3 19 12 5 21 5 3"/>
-        </svg>
-      </button>
-      <button class="btn btn-accent-secondary slide-quick-btn" data-action="presenter" data-slide="${i}" title="${t('detail.presenterMode')}">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-          <line x1="8" y1="21" x2="16" y2="21"/>
-          <line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
-      </button>
-    `;
+      const info = document.createElement('div');
+      info.className = 'slide-thumb-info';
+      const hasNote = currentPdf.notes && currentPdf.notes[pageNum];
+      const hasVideo = currentPdf.videos && currentPdf.videos[pageNum];
+      info.innerHTML = `
+        <span>${t('slide.slide')} ${pageNum}</span>
+        <div class="slide-thumb-badges">
+          ${hasNote ? '<div class="slide-badge note" title="' + t('slide.hasNotes') + '"></div>' : ''}
+          ${hasVideo ? '<div class="slide-badge video" title="' + t('slide.hasVideo') + '"></div>' : ''}
+        </div>
+      `;
 
-    div.appendChild(canvas);
-    div.appendChild(actions);
-    div.appendChild(info);
-    grid.appendChild(div);
+      const actions = document.createElement('div');
+      actions.className = 'slide-thumb-actions';
+      actions.innerHTML = `
+        <button class="btn btn-accent slide-quick-btn" data-action="present" data-slide="${pageNum}" title="${t('detail.startPresentation')}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+        </button>
+        <button class="btn btn-accent-secondary slide-quick-btn" data-action="presenter" data-slide="${pageNum}" title="${t('detail.presenterMode')}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </button>
+      `;
 
-    // Quick-start buttons
-    actions.querySelectorAll('.slide-quick-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const slide = parseInt(btn.dataset.slide);
-        if (btn.dataset.action === 'present') {
-          startPresentationFromSlide(slide);
-        } else {
-          startPresenterModeFromSlide(slide);
-        }
+      div.appendChild(canvas);
+      div.appendChild(actions);
+      div.appendChild(info);
+
+      actions.querySelectorAll('.slide-quick-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const slide = parseInt(btn.dataset.slide, 10);
+          if (btn.dataset.action === 'present') {
+            startPresentationFromSlide(slide);
+          } else {
+            startPresenterModeFromSlide(slide);
+          }
+        });
       });
-    });
 
-    div.addEventListener('click', () => openVideoEditor(i));
-    items.push({ canvas, pageNum: i });
-  }
-
-  // Render canvases in batches of 4 to avoid blocking the UI
-  const BATCH_SIZE = 4;
-  for (let b = 0; b < items.length; b += BATCH_SIZE) {
-    if (generation !== renderGeneration) return;
-    const batch = items.slice(b, b + BATCH_SIZE);
-    await Promise.all(batch.map(async ({ canvas, pageNum }) => {
-      const page = await currentDoc.getPage(pageNum);
-      if (generation !== renderGeneration) return;
-      const viewport = page.getViewport({ scale: 0.5 });
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext('2d');
-      await page.render({ canvasContext: ctx, viewport }).promise;
-    }));
-  }
+      div.addEventListener('click', () => openVideoEditor(pageNum));
+      return { element: div, canvas };
+    }
+  });
 }
 
 function updateDetailInfo() {
@@ -487,45 +680,49 @@ async function removeVideo() {
 // Edit slides modal
 function openEditModal() {
   if (!pdfDoc || !selectedPdf) return;
-  renderEditGrid();
   document.getElementById('edit-modal').classList.remove('hidden');
+  renderEditGrid();
 }
 
-async function renderEditGrid() {
+function renderEditGrid() {
   const grid = document.getElementById('edit-slides-grid');
-  grid.innerHTML = '';
 
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    const page = await pdfDoc.getPage(i);
-    const viewport = page.getViewport({ scale: 0.4 });
-
-    const div = document.createElement('div');
-    div.className = `edit-slide-item ${selectedPdf.videos && selectedPdf.videos[i] ? 'has-video' : ''}`;
-    div.dataset.page = i;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
-
-    const label = document.createElement('div');
-    label.className = 'edit-slide-label';
-    const hasVideo = selectedPdf.videos && selectedPdf.videos[i];
-    label.innerHTML = `
-      <span>${i}</span>
-      ${hasVideo ? '<span class="video-indicator">' + t('editModal.videoIndicator') + '</span>' : ''}
-    `;
-
-    div.appendChild(canvas);
-    div.appendChild(label);
-    grid.appendChild(div);
-
-    div.addEventListener('click', () => {
-      document.getElementById('edit-modal').classList.add('hidden');
-      openVideoEditor(i);
-    });
+  if (!pdfDoc || !selectedPdf) {
+    editThumbSession = stopThumbSession(editThumbSession, grid);
+    return;
   }
+
+  editThumbSession = stopThumbSession(editThumbSession, grid);
+  editThumbSession = createThumbSession({
+    container: grid,
+    scrollRoot: grid.closest('.modal-body'),
+    doc: pdfDoc,
+    pageCount: pdfDoc.numPages,
+    scale: 0.4,
+    buildItem: (pageNum) => {
+      const div = document.createElement('div');
+      div.className = `edit-slide-item ${selectedPdf.videos && selectedPdf.videos[pageNum] ? 'has-video' : ''}`;
+
+      const canvas = document.createElement('canvas');
+
+      const label = document.createElement('div');
+      label.className = 'edit-slide-label';
+      const hasVideo = selectedPdf.videos && selectedPdf.videos[pageNum];
+      label.innerHTML = `
+        <span>${pageNum}</span>
+        ${hasVideo ? '<span class="video-indicator">' + t('editModal.videoIndicator') + '</span>' : ''}
+      `;
+
+      div.appendChild(canvas);
+      div.appendChild(label);
+      div.addEventListener('click', () => {
+        closeEditModal();
+        openVideoEditor(pageNum);
+      });
+
+      return { element: div, canvas };
+    }
+  });
 }
 
 // Start presentation
@@ -567,7 +764,7 @@ async function confirmDelete() {
   presentations = presentations.filter(p => p.id !== id);
   if (selectedPdf && selectedPdf.id === id) {
     selectedPdf = null;
-    pdfDoc = null;
+    await unloadCurrentPdf();
     document.getElementById('detail-panel').classList.add('hidden');
     document.getElementById('welcome-panel').classList.remove('hidden');
   }
@@ -657,35 +854,41 @@ function openNotesViewer() {
   setupNotesViewerKeyboard();
 }
 
-async function renderNotesViewerThumbs() {
+function renderNotesViewerThumbs() {
   const container = document.getElementById('notes-viewer-thumbs');
-  container.innerHTML = '';
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    const page = await pdfDoc.getPage(i);
-    const viewport = page.getViewport({ scale: 0.3 });
-    const div = document.createElement('div');
-    div.className = `notes-thumb ${i === notesViewerSlide ? 'active' : ''} ${selectedPdf.notes && selectedPdf.notes[i] ? 'notes-thumb-has-note' : ''}`;
-    div.dataset.page = i;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
-
-    const label = document.createElement('div');
-    label.className = 'notes-thumb-label';
-    label.textContent = i;
-
-    div.appendChild(canvas);
-    div.appendChild(label);
-    container.appendChild(div);
-
-    div.addEventListener('click', () => {
-      saveCurrentNote();
-      renderNotesViewerSlide(i);
-    });
+  if (!pdfDoc || !selectedPdf) {
+    notesThumbSession = stopThumbSession(notesThumbSession, container);
+    return;
   }
+
+  notesThumbSession = stopThumbSession(notesThumbSession, container);
+  notesThumbSession = createThumbSession({
+    container,
+    scrollRoot: document.querySelector('.notes-viewer-sidebar'),
+    doc: pdfDoc,
+    pageCount: pdfDoc.numPages,
+    scale: 0.3,
+    buildItem: (pageNum) => {
+      const div = document.createElement('div');
+      div.className = `notes-thumb ${pageNum === notesViewerSlide ? 'active' : ''} ${selectedPdf.notes && selectedPdf.notes[pageNum] ? 'notes-thumb-has-note' : ''}`;
+
+      const canvas = document.createElement('canvas');
+
+      const label = document.createElement('div');
+      label.className = 'notes-thumb-label';
+      label.textContent = pageNum;
+
+      div.appendChild(canvas);
+      div.appendChild(label);
+      div.addEventListener('click', () => {
+        saveCurrentNote();
+        renderNotesViewerSlide(pageNum);
+      });
+
+      return { element: div, canvas };
+    }
+  });
 }
 
 async function renderNotesViewerSlide(num) {
@@ -855,12 +1058,7 @@ function setupNotesViewerKeyboard() {
 
     if (e.key === 'Escape') {
       e.preventDefault();
-      saveCurrentNote();
-      modal.classList.add('hidden');
-      if (notesViewerKeyHandler) {
-        document.removeEventListener('keydown', notesViewerKeyHandler);
-        notesViewerKeyHandler = null;
-      }
+      closeNotesViewer();
       return;
     }
 
@@ -935,18 +1133,11 @@ function setupEventListeners() {
   });
 
   // Edit modal
-  document.getElementById('btn-close-edit-modal').addEventListener('click', () => {
-    document.getElementById('edit-modal').classList.add('hidden');
-  });
+  document.getElementById('btn-close-edit-modal').addEventListener('click', closeEditModal);
 
   // Notes viewer modal
   document.getElementById('btn-close-notes-viewer').addEventListener('click', () => {
-    saveCurrentNote();
-    document.getElementById('notes-viewer-modal').classList.add('hidden');
-    if (notesViewerKeyHandler) {
-      document.removeEventListener('keydown', notesViewerKeyHandler);
-      notesViewerKeyHandler = null;
-    }
+    closeNotesViewer();
   });
   document.getElementById('btn-save-note').addEventListener('click', saveCurrentNote);
 
@@ -1001,11 +1192,12 @@ function setupEventListeners() {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
         if (overlay.id === 'notes-viewer-modal') {
-          saveCurrentNote();
-          if (notesViewerKeyHandler) {
-            document.removeEventListener('keydown', notesViewerKeyHandler);
-            notesViewerKeyHandler = null;
-          }
+          closeNotesViewer();
+          return;
+        }
+        if (overlay.id === 'edit-modal') {
+          closeEditModal();
+          return;
         }
         overlay.classList.add('hidden');
       }

@@ -207,7 +207,7 @@ ipcMain.handle('get-pdf-data', (event, pdfId) => {
   ensureDataDir();
   const filePath = path.join(DATA_DIR, `${pdfId}.pdf`);
   if (!fs.existsSync(filePath)) return null;
-  return fs.readFileSync(filePath).toString('base64');
+  return fs.readFileSync(filePath);
 });
 
 function startPowerSaveBlock() {
