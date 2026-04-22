@@ -75,6 +75,7 @@ function startServer(dataDirPath, port) {
         return res.status(404).json({ error: 'PDF not found' });
       }
       res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       res.sendFile(pdfPath);
     });
 

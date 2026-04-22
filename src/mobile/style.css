@@ -166,6 +166,11 @@ html, body {
   background: var(--bg-hover);
 }
 
+.btn-icon.active {
+  background: var(--accent);
+  color: white;
+}
+
 /* Slide area */
 .slide-area {
   flex: 1;
@@ -315,7 +320,8 @@ html, body {
 }
 
 /* Black screen button active state */
-#btn-black-screen.active {
+#btn-black-screen.active,
+#fs-btn-black-screen.active {
   background: var(--red);
   color: white;
 }

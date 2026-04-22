@@ -16,6 +16,7 @@ let pdfPageAspectRatio = 16 / 9;
 let mainThumbSession = null;
 let editThumbSession = null;
 let notesThumbSession = null;
+let canLoadPdfFromFileUrl = true;
 
 const THUMB_PRELOAD_MARGIN_PX = 600;
 const THUMB_RELEASE_MARGIN_PX = 1400;
@@ -205,6 +206,32 @@ function toPdfUint8Array(pdfData) {
     return Uint8Array.from(atob(pdfData), c => c.charCodeAt(0));
   }
   return new Uint8Array(pdfData);
+}
+
+function toFileUrl(filePath) {
+  if (!filePath) return null;
+
+  const normalized = filePath.replace(/\\/g, '/');
+  const prefixed = normalized.startsWith('/') ? normalized : `/${normalized}`;
+  return encodeURI(`file://${prefixed}`);
+}
+
+async function loadPdfDocument(pdfId, pdfPath) {
+  const fileUrl = toFileUrl(pdfPath);
+  if (canLoadPdfFromFileUrl && fileUrl) {
+    try {
+      return await window.pdfjsLib.getDocument({ url: fileUrl }).promise;
+    } catch (err) {
+      canLoadPdfFromFileUrl = false;
+      console.warn('Fast PDF load failed, retrying through IPC buffer:', err);
+    }
+  }
+
+  const pdfData = await window.api.getPdfData(pdfId);
+  if (!pdfData) return null;
+
+  const data = toPdfUint8Array(pdfData);
+  return window.pdfjsLib.getDocument({ data }).promise;
 }
 
 function closeEditModal() {
@@ -431,6 +458,7 @@ function renderPdfList() {
 
 // Select a PDF
 async function selectPdf(id) {
+  const canReuseCurrentDoc = selectedPdf && selectedPdf.id === id && pdfDoc;
   selectedPdf = presentations.find(p => p.id === id);
   if (!selectedPdf) return;
 
@@ -444,13 +472,16 @@ async function selectPdf(id) {
   document.getElementById('detail-title').textContent = selectedPdf.name;
   document.getElementById('detail-title').title = t('sidebar.rename');
 
+  if (canReuseCurrentDoc) {
+    renderThumbnails();
+    updateDetailInfo();
+    return;
+  }
+
   await unloadCurrentPdf();
 
-  const pdfData = await window.api.getPdfData(id);
-  if (!pdfData) return;
-
-  const data = toPdfUint8Array(pdfData);
-  pdfDoc = await window.pdfjsLib.getDocument({ data }).promise;
+  pdfDoc = await loadPdfDocument(id, selectedPdf.pdfPath);
+  if (!pdfDoc) return;
   selectedPdf.totalPages = pdfDoc.numPages;
 
   if (pdfDoc.numPages > 0) {

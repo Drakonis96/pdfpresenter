@@ -258,6 +258,7 @@
     let notesFontSize = 15;
     let renderTasks = {}; // Track in-flight PDF.js render tasks per canvas
     let renderGeneration = 0;
+    let canStreamPdfFromUrl = true;
 
     // Timer
     let timerRunning = false;
@@ -286,6 +287,27 @@
       return new Uint8Array(pdfData);
     }
 
+    function buildPdfUrl(pdfId) {
+      return `${window.location.origin}/api/pdf/${encodeURIComponent(pdfId)}`;
+    }
+
+    async function loadPdfDocument(pdfId) {
+      if (canStreamPdfFromUrl) {
+        try {
+          return await pdfjsLib.getDocument({ url: buildPdfUrl(pdfId) }).promise;
+        } catch (err) {
+          canStreamPdfFromUrl = false;
+          console.warn('Streaming PDF load failed, retrying with IPC buffer:', err);
+        }
+      }
+
+      const pdfData = await window.api.getPdfData(pdfId);
+      if (!pdfData) return null;
+
+      const data = toPdfUint8Array(pdfData);
+      return pdfjsLib.getDocument({ data }).promise;
+    }
+
     async function initPresenter() {
       const params = window.api.getQueryParams();
       const pdfId = params.pdfId;
@@ -298,9 +320,8 @@
 
       document.getElementById('presentation-name').textContent = presentationData.name;
 
-      const pdfData = await window.api.getPdfData(pdfId);
-      const data = toPdfUint8Array(pdfData);
-      pdfDoc = await pdfjsLib.getDocument({ data }).promise;
+  pdfDoc = await loadPdfDocument(pdfId);
+  if (!pdfDoc) return;
       totalSlides = pdfDoc.numPages;
 
       const startSlide = Math.min(Math.max(parseInt(params.startSlide) || 1, 1), totalSlides);
@@ -410,25 +431,41 @@
       const dpr = window.devicePixelRatio || 1;
       const viewport = page.getViewport({ scale: scale * dpr });
 
-      // Buffer at high resolution; set explicit CSS size for correct display
+      const bufferCanvas = document.createElement('canvas');
+      bufferCanvas.width = viewport.width;
+      bufferCanvas.height = viewport.height;
+      bufferCanvas.style.width = Math.floor(viewport.width / dpr) + 'px';
+      bufferCanvas.style.height = Math.floor(viewport.height / dpr) + 'px';
+
+      const bufferCtx = bufferCanvas.getContext('2d');
+      const renderTask = page.render({ canvasContext: bufferCtx, viewport });
+      renderTasks[canvasId] = renderTask;
+      let renderCancelled = false;
+
+      try {
+        await renderTask.promise;
+      } catch(e) {
+        if (e.name === 'RenderingCancelledException') {
+          renderCancelled = true;
+        } else {
+          throw e;
+        }
+      } finally {
+        if (renderTasks[canvasId] === renderTask) {
+          renderTasks[canvasId] = null;
+        }
+      }
+
+      if (renderCancelled) return;
+
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       canvas.style.width = Math.floor(viewport.width / dpr) + 'px';
       canvas.style.height = Math.floor(viewport.height / dpr) + 'px';
 
       const ctx = canvas.getContext('2d');
-      const renderTask = page.render({ canvasContext: ctx, viewport });
-      renderTasks[canvasId] = renderTask;
-
-      try {
-        await renderTask.promise;
-      } catch(e) {
-        if (e.name !== 'RenderingCancelledException') throw e;
-      } finally {
-        if (renderTasks[canvasId] === renderTask) {
-          renderTasks[canvasId] = null;
-        }
-      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bufferCanvas, 0, 0);
     }
 
     function updateNotes(slideNum) {

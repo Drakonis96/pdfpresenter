@@ -16,6 +16,9 @@ let toolSizes = { pointer: 20, flashlight: 15, draw: 4, zoom: 200 };
 let localTimerSeconds = 0;
 let localTimerRunning = false;
 let localTimerInterval = null;
+let canStreamPdfFromUrl = true;
+let localPreviewMode = false;
+let localSlide = 1;
 
 // Slide zoom state
 let slideZoomScale = 1;
@@ -36,6 +39,25 @@ function loadPdfJs() {
     };
     document.head.appendChild(script);
   });
+}
+
+function buildPdfUrl(pdfId) {
+  return `/api/pdf/${encodeURIComponent(pdfId)}`;
+}
+
+async function loadPdfDocument(pdfUrl) {
+  if (canStreamPdfFromUrl) {
+    try {
+      return await pdfjsLib.getDocument({ url: pdfUrl }).promise;
+    } catch (err) {
+      canStreamPdfFromUrl = false;
+      console.warn('Streaming PDF load failed, retrying with buffered fetch:', err);
+    }
+  }
+
+  const response = await fetch(pdfUrl);
+  const buffer = await response.arrayBuffer();
+  return pdfjsLib.getDocument({ data: buffer }).promise;
 }
 
 // WebSocket connection
@@ -65,7 +87,9 @@ function connect() {
         handleStateUpdate(msg.data);
         break;
       case 'tool-data':
-        renderToolOnPreview(msg.data);
+        if (!localPreviewMode || getDisplayedSlide() === state.currentSlide) {
+          renderToolOnPreview(msg.data);
+        }
         break;
       case 'tool-size':
         if (msg.data && msg.data.tool) {
@@ -88,7 +112,7 @@ function connect() {
         }
         break;
       case 'slide-zoom':
-        if (msg.data) {
+        if (msg.data && !localPreviewMode) {
           slideZoomScale = msg.data.scale;
           slideZoomOriginX = msg.data.originX;
           slideZoomOriginY = msg.data.originY;
@@ -121,7 +145,7 @@ function send(msg) {
 // State handling
 async function handleStateUpdate(newState) {
   const wasPresenting = state.presenting;
-  const prevSlide = state.currentSlide;
+  const prevDisplayedSlide = getDisplayedSlide();
   const prevPdfId = state.pdfId;
   
   Object.assign(state, newState);
@@ -135,7 +159,7 @@ async function handleStateUpdate(newState) {
     }
 
     // Sync slide zoom from state
-    if (newState.slideZoom) {
+    if (newState.slideZoom && !localPreviewMode) {
       slideZoomScale = newState.slideZoom.scale;
       slideZoomOriginX = newState.slideZoom.originX;
       slideZoomOriginY = newState.slideZoom.originY;
@@ -145,33 +169,43 @@ async function handleStateUpdate(newState) {
     // Load PDF if needed
     if (state.pdfId && state.pdfId !== prevPdfId) {
       await loadPdf(state.pdfId);
+      syncLocalSlideToState();
+    } else if (!localPreviewMode) {
+      syncLocalSlideToState();
+    } else {
+      localSlide = clampSlideNumber(localSlide);
     }
     
     updateUI();
     updateVideoToggleButton();
     updateBlackScreenButton();
+    updateLocalPreviewButton();
     
-    if (state.currentSlide !== prevSlide || state.pdfId !== prevPdfId) {
-      const notesContent = document.getElementById('notes-content');
-      if (notesContent) notesContent.scrollTop = 0;
-      await renderPreview(state.currentSlide);
-      clearPreviewDrawOverlay();
-      // Reset zoom on slide change
-      slideZoomScale = 1;
-      slideZoomOriginX = 50;
-      slideZoomOriginY = 50;
-      applySlideZoomPreview();
+    const displayedSlide = getDisplayedSlide();
+    if (displayedSlide !== prevDisplayedSlide || state.pdfId !== prevPdfId) {
+      scrollNotesToTop();
+      await renderPreview(displayedSlide);
+      resetSlidePreviewState();
     }
   } else {
+    localPreviewMode = false;
+    syncLocalSlideToState();
+    updateLocalPreviewButton();
     showScreen('screen-waiting');
   }
 }
 
 async function loadPdf(pdfId) {
   try {
-    const response = await fetch(`/api/pdf/${pdfId}`);
-    const buffer = await response.arrayBuffer();
-    pdfDoc = await pdfjsLib.getDocument({ data: buffer }).promise;
+    const nextDoc = await loadPdfDocument(buildPdfUrl(pdfId));
+    const previousDoc = pdfDoc;
+    pdfDoc = nextDoc;
+    carouselRendered = false;
+    carouselRenderedPdfId = null;
+
+    if (previousDoc && typeof previousDoc.destroy === 'function') {
+      await previousDoc.destroy();
+    }
   } catch (err) {
     console.error('Error loading PDF:', err);
   }
@@ -232,17 +266,19 @@ function updateMobileTimerDisplay() {
 }
 
 function updateUI() {
+  const displayedSlide = getDisplayedSlide();
+
   // Slide counter
-  document.getElementById('slide-counter').textContent = `${state.currentSlide} / ${state.totalSlides}`;
+  document.getElementById('slide-counter').textContent = `${displayedSlide} / ${state.totalSlides}`;
   updateFullscreenSlideCounter();
   
   // Notes
-  const noteKey = state.currentSlide;
+  const noteKey = displayedSlide;
   const note = state.notes && state.notes[noteKey];
   const notesContent = document.getElementById('notes-content');
   const notesSlideLabel = document.getElementById('notes-slide-label');
   
-  notesSlideLabel.textContent = `Slide ${state.currentSlide}`;
+  notesSlideLabel.textContent = `Slide ${displayedSlide}`;
   
   if (note && note.trim()) {
     const paragraphs = note.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
@@ -254,25 +290,26 @@ function updateUI() {
   
   // Dots
   renderDots();
+  updateCarouselSelection();
 }
 
 function renderDots() {
   const container = document.getElementById('slide-dots');
   const maxDots = 40;
-  const total = Math.min(state.totalSlides, maxDots);
+  const currentSlide = getDisplayedSlide();
   
   let html = '';
   for (let i = 1; i <= state.totalSlides; i++) {
     if (state.totalSlides > maxDots) {
       // Show subset around current slide
       const half = Math.floor(maxDots / 2);
-      let start = Math.max(1, state.currentSlide - half);
+      let start = Math.max(1, currentSlide - half);
       let end = Math.min(state.totalSlides, start + maxDots - 1);
       if (end - start < maxDots - 1) start = Math.max(1, end - maxDots + 1);
       
       if (i < start || i > end) continue;
     }
-    html += `<div class="slide-dot ${i === state.currentSlide ? 'active' : ''}" data-slide="${i}"></div>`;
+    html += `<div class="slide-dot ${i === currentSlide ? 'active' : ''}" data-slide="${i}"></div>`;
   }
   container.innerHTML = html;
   
@@ -285,7 +322,7 @@ function renderDots() {
   // Click handlers
   container.querySelectorAll('.slide-dot').forEach(dot => {
     dot.addEventListener('click', () => {
-      send({ type: 'navigate', slide: parseInt(dot.dataset.slide) });
+      navigateToSlide(parseInt(dot.dataset.slide, 10));
     });
   });
 }
@@ -295,20 +332,127 @@ function showScreen(id) {
   document.getElementById(id).classList.remove('hidden');
 }
 
+function clampSlideNumber(slide) {
+  const totalSlides = Math.max(1, state.totalSlides || 1);
+  const nextSlide = Number.isFinite(slide) ? slide : parseInt(slide, 10);
+  if (!Number.isFinite(nextSlide)) return 1;
+  return Math.min(Math.max(nextSlide, 1), totalSlides);
+}
+
+function getDisplayedSlide() {
+  return localPreviewMode ? clampSlideNumber(localSlide) : clampSlideNumber(state.currentSlide);
+}
+
+function syncLocalSlideToState() {
+  localSlide = clampSlideNumber(state.currentSlide);
+}
+
+function scrollNotesToTop() {
+  const notesContent = document.getElementById('notes-content');
+  if (notesContent) notesContent.scrollTop = 0;
+}
+
+function resetSlidePreviewState() {
+  hidePreviewOverlays();
+  clearPreviewDrawOverlay();
+  slideZoomScale = 1;
+  slideZoomOriginX = 50;
+  slideZoomOriginY = 50;
+  applySlideZoomPreview();
+}
+
+function updateLocalPreviewButton() {
+  const btn = document.getElementById('btn-local-preview');
+  if (!btn) return;
+  btn.classList.toggle('active', localPreviewMode);
+  btn.setAttribute('aria-pressed', localPreviewMode ? 'true' : 'false');
+  btn.title = localPreviewMode ? 'Vista local activa' : 'Vista local de notas';
+}
+
+function updateCarouselSelection() {
+  const overlay = document.getElementById('carousel-overlay');
+  const track = document.getElementById('carousel-track');
+  if (!overlay || !track || overlay.classList.contains('hidden') || !track.children.length) return;
+  updateCarouselActive(track);
+  scrollCarouselToActive(track);
+}
+
+async function showLocalSlide(slide) {
+  const nextSlide = clampSlideNumber(slide);
+  if (nextSlide === localSlide) return;
+
+  localSlide = nextSlide;
+  updateUI();
+  updateVideoToggleButton();
+  scrollNotesToTop();
+  if (pdfDoc) {
+    await renderPreview(nextSlide);
+  }
+  resetSlidePreviewState();
+  updateCarouselSelection();
+}
+
+async function navigateToSlide(slide) {
+  const nextSlide = clampSlideNumber(slide);
+  if (localPreviewMode) {
+    await showLocalSlide(nextSlide);
+    return;
+  }
+
+  if (nextSlide !== state.currentSlide) {
+    send({ type: 'navigate', slide: nextSlide });
+  }
+}
+
+async function nudgeSlide(delta) {
+  const currentSlide = getDisplayedSlide();
+  const nextSlide = clampSlideNumber(currentSlide + delta);
+  if (nextSlide === currentSlide) return;
+
+  if (localPreviewMode) {
+    await showLocalSlide(nextSlide);
+    return;
+  }
+
+  send({ type: delta > 0 ? 'next' : 'prev' });
+}
+
+async function toggleLocalPreviewMode() {
+  if (!state.presenting) return;
+
+  localPreviewMode = !localPreviewMode;
+  syncLocalSlideToState();
+  updateLocalPreviewButton();
+  updateUI();
+  updateVideoToggleButton();
+  scrollNotesToTop();
+  if (pdfDoc) {
+    await renderPreview(getDisplayedSlide());
+  }
+  resetSlidePreviewState();
+  updateCarouselSelection();
+}
+
 // Navigation
 document.getElementById('btn-prev').addEventListener('click', () => {
-  send({ type: 'prev' });
+  nudgeSlide(-1);
 });
 
 document.getElementById('btn-next').addEventListener('click', () => {
-  send({ type: 'next' });
+  nudgeSlide(1);
+});
+
+document.getElementById('btn-local-preview').addEventListener('click', () => {
+  toggleLocalPreviewMode();
 });
 
 // Video toggle
 function updateVideoToggleButton() {
-  const hasVideo = state.videos && state.videos[state.currentSlide];
+  const displayedSlide = getDisplayedSlide();
+  const hasVideo = state.videos && state.videos[displayedSlide];
+  const canControlVideo = !localPreviewMode || displayedSlide === state.currentSlide;
   const videoBtn = document.getElementById('btn-video-toggle');
-  if (hasVideo) {
+  if (hasVideo && canControlVideo) {
     videoBtn.classList.remove('hidden');
   } else {
     videoBtn.classList.add('hidden');
@@ -468,7 +612,7 @@ function renderToolOnPreview(data) {
 }
 
 // Tools
-document.querySelectorAll('.tools-bar .tool-btn').forEach(btn => {
+document.querySelectorAll('.tools-bar .tool-btn[data-tool]').forEach(btn => {
   btn.addEventListener('click', () => {
     const tool = btn.dataset.tool;
     
@@ -481,7 +625,7 @@ document.querySelectorAll('.tools-bar .tool-btn').forEach(btn => {
       send({ type: 'tool', tool: null });
     } else {
       // Activate
-      document.querySelectorAll('.tools-bar .tool-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tools-bar .tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activeTool = tool;
       hidePreviewOverlays();
@@ -519,6 +663,7 @@ function getRelativePos(touch) {
 }
 
 touchArea.addEventListener('touchstart', (e) => {
+  if (localPreviewMode) return;
   // Detect pinch-to-zoom (2 fingers) — only if pinch zoom is enabled
   if (e.touches.length === 2 && pinchZoomEnabled) {
     e.preventDefault();
@@ -549,6 +694,7 @@ touchArea.addEventListener('touchstart', (e) => {
 }, { passive: false });
 
 touchArea.addEventListener('touchmove', (e) => {
+  if (localPreviewMode) return;
   // Handle pinch-to-zoom (2 fingers) — only if pinch zoom is enabled
   if (e.touches.length === 2 && pinchStartDist > 0 && pinchZoomEnabled) {
     e.preventDefault();
@@ -577,6 +723,10 @@ touchArea.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 touchArea.addEventListener('touchend', (e) => {
+  if (localPreviewMode) {
+    pinchStartDist = 0;
+    return;
+  }
   if (e.touches.length < 2) {
     pinchStartDist = 0;
   }
@@ -627,8 +777,9 @@ document.getElementById('btn-font-increase').addEventListener('click', () => {
   }, { passive: false });
 
   handle.addEventListener('touchend', () => {
-    if (state.currentSlide && pdfDoc) {
-      renderPreview(state.currentSlide);
+    const displayedSlide = getDisplayedSlide();
+    if (displayedSlide && pdfDoc) {
+      renderPreview(displayedSlide);
     }
   });
 })();
@@ -739,9 +890,9 @@ slideArea.addEventListener('touchend', (e) => {
   
   if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
     if (dx < 0) {
-      send({ type: 'next' });
+      nudgeSlide(1);
     } else {
-      send({ type: 'prev' });
+      nudgeSlide(-1);
     }
   }
 }, { passive: true });
@@ -784,9 +935,10 @@ function closeCarousel() {
 }
 
 function updateCarouselActive(track) {
+  const displayedSlide = getDisplayedSlide();
   track.querySelectorAll('.carousel-item').forEach(el => {
     const s = parseInt(el.dataset.slide);
-    el.classList.toggle('active', s === state.currentSlide);
+    el.classList.toggle('active', s === displayedSlide);
   });
 }
 
@@ -817,7 +969,7 @@ async function renderCarouselThumbnails(track) {
 
   for (let i = 1; i <= pdfDoc.numPages; i++) {
     const item = document.createElement('div');
-    item.className = 'carousel-item' + (i === state.currentSlide ? ' active' : '');
+    item.className = 'carousel-item' + (i === getDisplayedSlide() ? ' active' : '');
     item.dataset.slide = i;
 
     const canvas = document.createElement('canvas');
@@ -837,7 +989,7 @@ async function renderCarouselThumbnails(track) {
     items.push({ item, canvas, slideNum: i });
 
     item.addEventListener('click', () => {
-      send({ type: 'navigate', slide: i });
+      navigateToSlide(i);
       closeCarousel();
     });
   }
@@ -892,22 +1044,25 @@ function isFullscreenActive() {
 }
 
 function updateFullscreenSlideCounter() {
+  const displayedSlide = getDisplayedSlide();
   const el = document.getElementById('fs-slide-counter');
-  if (el) el.textContent = `${state.currentSlide} / ${state.totalSlides}`;
+  if (el) el.textContent = `${displayedSlide} / ${state.totalSlides}`;
 }
 
 function syncFullscreenToolState() {
   // Mirror active tool state to fullscreen-bar buttons
-  document.querySelectorAll('#fullscreen-bar .tool-btn').forEach(btn => {
+  document.querySelectorAll('#fullscreen-bar .tool-btn[data-tool]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tool === activeTool);
   });
 }
 
 function updateFullscreenVideoToggle() {
-  const hasVideo = state.videos && state.videos[state.currentSlide];
+  const displayedSlide = getDisplayedSlide();
+  const hasVideo = state.videos && state.videos[displayedSlide];
+  const canControlVideo = !localPreviewMode || displayedSlide === state.currentSlide;
   const fsBtn = document.getElementById('fs-btn-video-toggle');
   if (fsBtn) {
-    if (hasVideo) {
+    if (hasVideo && canControlVideo) {
       fsBtn.classList.remove('hidden');
     } else {
       fsBtn.classList.add('hidden');
@@ -928,7 +1083,8 @@ function enterFullscreen() {
   updateFullscreenBlackScreen();
   // Re-render preview after layout change
   setTimeout(() => {
-    if (state.currentSlide && pdfDoc) renderPreview(state.currentSlide);
+    const displayedSlide = getDisplayedSlide();
+    if (displayedSlide && pdfDoc) renderPreview(displayedSlide);
   }, 50);
 }
 
@@ -936,7 +1092,8 @@ function exitFullscreen() {
   document.getElementById('screen-remote').classList.remove('fullscreen-mode');
   // Re-render preview after layout change
   setTimeout(() => {
-    if (state.currentSlide && pdfDoc) renderPreview(state.currentSlide);
+    const displayedSlide = getDisplayedSlide();
+    if (displayedSlide && pdfDoc) renderPreview(displayedSlide);
   }, 50);
 }
 
@@ -950,11 +1107,11 @@ document.getElementById('btn-fullscreen-mode').addEventListener('click', enterFu
 document.getElementById('btn-exit-fullscreen').addEventListener('click', exitFullscreen);
 
 // Fullscreen-bar navigation buttons
-document.getElementById('fs-btn-prev').addEventListener('click', () => send({ type: 'prev' }));
-document.getElementById('fs-btn-next').addEventListener('click', () => send({ type: 'next' }));
+document.getElementById('fs-btn-prev').addEventListener('click', () => nudgeSlide(-1));
+document.getElementById('fs-btn-next').addEventListener('click', () => nudgeSlide(1));
 
 // Fullscreen-bar tool buttons (mirror main toolbar)
-document.querySelectorAll('#fullscreen-bar .tool-btn').forEach(btn => {
+document.querySelectorAll('#fullscreen-bar .tool-btn[data-tool]').forEach(btn => {
   btn.addEventListener('click', () => {
     const tool = btn.dataset.tool;
     if (activeTool === tool) {
@@ -967,7 +1124,7 @@ document.querySelectorAll('#fullscreen-bar .tool-btn').forEach(btn => {
       send({ type: 'tool', tool });
     }
     // Sync both toolbars
-    document.querySelectorAll('.tool-btn').forEach(b => {
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(b => {
       b.classList.toggle('active', b.dataset.tool === activeTool);
     });
     // Show/hide clear draw button
@@ -997,7 +1154,8 @@ window.matchMedia('(orientation: landscape)').addEventListener('change', () => {
   updateFullscreenVideoToggle();
   updateFullscreenBlackScreen();
   setTimeout(() => {
-    if (state.currentSlide && pdfDoc) renderPreview(state.currentSlide);
+    const displayedSlide = getDisplayedSlide();
+    if (displayedSlide && pdfDoc) renderPreview(displayedSlide);
   }, 100);
 });
 
